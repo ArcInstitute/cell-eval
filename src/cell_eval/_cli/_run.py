@@ -97,6 +97,11 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="Allow discrete data to be evaluated (usually expected to be norm-logged inputs)",
     )
     parser.add_argument(
+        "--parallel-de",
+        action="store_true",
+        help="Compute real and pred differential expression in parallel",
+    )
+    parser.add_argument(
         "--profile",
         type=str,
         default="full",
@@ -172,6 +177,7 @@ def run_evaluation(args: ap.Namespace):
                 outdir=args.outdir,
                 allow_discrete=args.allow_discrete,
                 prefix=ct,
+                parallel_de=args.parallel_de,
             )
             evaluator.compute(
                 profile=args.profile,
@@ -193,6 +199,7 @@ def run_evaluation(args: ap.Namespace):
             batch_size=args.batch_size,
             outdir=args.outdir,
             allow_discrete=args.allow_discrete,
+            parallel_de=args.parallel_de,
         )
         evaluator.compute(
             profile=args.profile,

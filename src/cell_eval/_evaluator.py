@@ -8,6 +8,7 @@ import pandas as pd
 import polars as pl
 import scanpy as sc
 from pdex import parallel_differential_expression
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from cell_eval.utils import guess_is_lognorm
 
@@ -51,6 +52,7 @@ class MetricsEvaluator:
     prefix: str | None = None
         Prefix for output files.
     pdex_kwargs: dict[str, Any] | None = None
+    parallel_de: bool = False
         Keyword arguments for parallel_differential_expression.
         These will overwrite arguments passed to MetricsEvaluator.__init__ if they conflict.
     """
@@ -70,6 +72,7 @@ class MetricsEvaluator:
         allow_discrete: bool = False,
         prefix: str | None = None,
         pdex_kwargs: dict[str, Any] | None = None,
+        parallel_de: bool = False,
     ):
         # Enable a global string cache for categorical columns
         pl.enable_string_cache()
@@ -98,6 +101,7 @@ class MetricsEvaluator:
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
+            parallel_de=parallel_de,
         )
 
         self.outdir = outdir
@@ -219,9 +223,126 @@ def _build_de_comparison(
     outdir: str | None = None,
     prefix: str | None = None,
     pdex_kwargs: dict[str, Any] | None = None,
+    parallel_de: bool = False,
 ):
-    return initialize_de_comparison(
-        real=_load_or_build_de(
+    # Sequential path or when only one side needs computation
+    if not parallel_de:
+        return initialize_de_comparison(
+            real=_load_or_build_de(
+                mode="real",
+                de_path=de_real,
+                anndata_pair=anndata_pair,
+                de_method=de_method,
+                num_threads=num_threads,
+                batch_size=batch_size,
+                outdir=outdir,
+                prefix=prefix,
+                pdex_kwargs=pdex_kwargs or {},
+                log_prefix="[DE-real] ",
+            ),
+            pred=_load_or_build_de(
+                mode="pred",
+                de_path=de_pred,
+                anndata_pair=anndata_pair,
+                de_method=de_method,
+                num_threads=num_threads,
+                batch_size=batch_size,
+                outdir=outdir,
+                prefix=prefix,
+                pdex_kwargs=pdex_kwargs or {},
+                log_prefix="[DE-pred] ",
+            ),
+        )
+
+    # Determine which sides require computation
+    needs_real = de_real is None
+    needs_pred = de_pred is None
+
+    # If neither needs computation, just load both sequentially (fast IO)
+    if not needs_real and not needs_pred:
+        return initialize_de_comparison(
+            real=_load_or_build_de(
+                mode="real",
+                de_path=de_real,
+                anndata_pair=anndata_pair,
+                de_method=de_method,
+                num_threads=num_threads,
+                batch_size=batch_size,
+                outdir=outdir,
+                prefix=prefix,
+                pdex_kwargs=pdex_kwargs or {},
+                log_prefix="[DE-real] ",
+            ),
+            pred=_load_or_build_de(
+                mode="pred",
+                de_path=de_pred,
+                anndata_pair=anndata_pair,
+                de_method=de_method,
+                num_threads=num_threads,
+                batch_size=batch_size,
+                outdir=outdir,
+                prefix=prefix,
+                pdex_kwargs=pdex_kwargs or {},
+                log_prefix="[DE-pred] ",
+            ),
+        )
+
+    # Split threads if both are computed; otherwise use full thread count for the single job
+    if needs_real and needs_pred:
+        per_threads = max(1, num_threads // 2)
+    else:
+        per_threads = max(1, num_threads)
+
+    results: dict[str, pl.DataFrame] = {}
+    futures = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        if needs_real:
+            futures.append(
+                (
+                    "real",
+                    executor.submit(
+                        _load_or_build_de,
+                        mode="real",
+                        de_path=de_real,
+                        anndata_pair=anndata_pair,
+                        de_method=de_method,
+                        num_threads=per_threads,
+                        batch_size=batch_size,
+                        outdir=outdir,
+                        prefix=prefix,
+                        pdex_kwargs=pdex_kwargs or {},
+                        log_prefix="[DE-real] ",
+                    ),
+                )
+            )
+        if needs_pred:
+            futures.append(
+                (
+                    "pred",
+                    executor.submit(
+                        _load_or_build_de,
+                        mode="pred",
+                        de_path=de_pred,
+                        anndata_pair=anndata_pair,
+                        de_method=de_method,
+                        num_threads=per_threads,
+                        batch_size=batch_size,
+                        outdir=outdir,
+                        prefix=prefix,
+                        pdex_kwargs=pdex_kwargs or {},
+                        log_prefix="[DE-pred] ",
+                    ),
+                )
+            )
+
+        for key, fut in futures:
+            results[key] = fut.result()
+
+    # For the side that didn't need computation, load now
+    real_frame = (
+        results["real"]
+        if needs_real
+        else _load_or_build_de(
             mode="real",
             de_path=de_real,
             anndata_pair=anndata_pair,
@@ -231,8 +352,13 @@ def _build_de_comparison(
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
-        ),
-        pred=_load_or_build_de(
+            log_prefix="[DE-real] ",
+        )
+    )
+    pred_frame = (
+        results["pred"]
+        if needs_pred
+        else _load_or_build_de(
             mode="pred",
             de_path=de_pred,
             anndata_pair=anndata_pair,
@@ -242,8 +368,11 @@ def _build_de_comparison(
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
-        ),
+            log_prefix="[DE-pred] ",
+        )
     )
+
+    return initialize_de_comparison(real=real_frame, pred=pred_frame)
 
 
 def _build_pdex_kwargs(
@@ -280,11 +409,12 @@ def _load_or_build_de(
     outdir: str | None = None,
     prefix: str | None = None,
     pdex_kwargs: dict[str, Any] | None = None,
+    log_prefix: str | None = None,
 ) -> pl.DataFrame:
     if de_path is None:
         if anndata_pair is None:
             raise ValueError("anndata_pair must be provided if de_path is not provided")
-        logger.info(f"Computing DE for {mode} data")
+        logger.info(f"{(log_prefix or '')}Computing DE for {mode} data")
         pdex_kwargs = _build_pdex_kwargs(
             reference=anndata_pair.control_pert,
             groupby_key=anndata_pair.pert_col,
@@ -299,12 +429,12 @@ def _load_or_build_de(
         )
         if outdir is not None:
             pathname = f"{mode}_de.csv" if not prefix else f"{prefix}_{mode}_de.csv"
-            logger.info(f"Writing {mode} DE results to: {pathname}")
+            logger.info(f"{(log_prefix or '')}Writing {mode} DE results to: {pathname}")
             frame.write_csv(os.path.join(outdir, pathname))
 
         return frame  # type: ignore
     elif isinstance(de_path, str):
-        logger.info(f"Reading {mode} DE results from {de_path}")
+        logger.info(f"{(log_prefix or '')}Reading {mode} DE results from {de_path}")
         if pdex_kwargs:
             logger.warning("pdex_kwargs are ignored when reading from a CSV file")
         return pl.read_csv(
