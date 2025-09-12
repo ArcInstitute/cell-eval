@@ -10,15 +10,105 @@ import scanpy as sc
 import sklearn.metrics as skm
 from scipy.sparse import issparse
 from scipy.stats import pearsonr
+from scipy.spatial.distance import pdist
 from sklearn.metrics import (
     adjusted_mutual_info_score,
     adjusted_rand_score,
     normalized_mutual_info_score,
 )
 
+# Try to import CUML for GPU acceleration
+try:
+    import cuml
+    from cuml.metrics import pairwise_distances as cuml_pairwise_distances
+    CUML_AVAILABLE = True
+except (ImportError, Exception) as e:
+    # Catch all exceptions including CUDA runtime errors during import
+    CUML_AVAILABLE = False
+    cuml_pairwise_distances = None
+
 from .._types import PerturbationAnndataPair
 
 logger = getLogger(__name__)
+
+
+def _optimized_pairwise_distances_mean(
+    data: np.ndarray, 
+    metric: str = "euclidean", 
+    max_samples: int = 2000,
+    random_state: int = 42,
+    use_gpu: bool = True,
+    **kwargs
+) -> float:
+    """Compute mean of pairwise distances with optimizations.
+    
+    Priority order:
+    1. CUML GPU acceleration (if available and use_gpu=True)
+    2. Sampling for large datasets 
+    3. scipy.pdist for euclidean distances
+    4. sklearn fallback
+    
+    Args:
+        data: Input data matrix (n_samples, n_features)
+        metric: Distance metric to use
+        max_samples: Maximum number of samples to use for large datasets
+        random_state: Random seed for sampling
+        use_gpu: Whether to attempt GPU acceleration
+        **kwargs: Additional arguments for distance computation
+        
+    Returns:
+        Mean of all pairwise distances
+    """
+    n_samples = data.shape[0]
+    original_n_samples = n_samples
+    
+    # For very large datasets, use sampling even with GPU
+    if n_samples > max_samples:
+        logger.info(f"Sampling {max_samples} cells from {n_samples} for sigma computation")
+        np.random.seed(random_state)
+        indices = np.random.choice(n_samples, max_samples, replace=False)
+        data = data[indices]
+        n_samples = max_samples
+    
+    # Try CUML GPU acceleration first
+    if CUML_AVAILABLE and use_gpu:
+        try:
+            import cupy as cp
+            
+            # Convert to GPU array
+            gpu_data = cp.asarray(data)
+            logger.info(f"Using CUML GPU acceleration for {n_samples} cells")
+            
+            # CUML pairwise distances
+            gpu_distances = cuml_pairwise_distances(gpu_data, metric=metric, **kwargs)
+            
+            # Get upper triangle to avoid double counting diagonal
+            n = gpu_distances.shape[0]
+            if n > 1:
+                upper_tri_indices = cp.triu_indices(n, k=1)
+                distances = gpu_distances[upper_tri_indices]
+                result = float(cp.mean(distances))
+            else:
+                result = 0.0
+            
+            # Clean up GPU memory
+            del gpu_data, gpu_distances
+            cp.get_default_memory_pool().free_all_blocks()
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"CUML GPU computation failed: {e}. Falling back to CPU.")
+    
+    # CPU fallbacks
+    # For euclidean distance on medium-sized datasets, use scipy.pdist (more efficient)
+    if metric == "euclidean" and n_samples <= 5000:
+        logger.info(f"Using scipy.pdist for {n_samples} cells")
+        return pdist(data, metric=metric).mean()
+    
+    # Fall back to sklearn for other metrics or very large datasets
+    logger.info(f"Using sklearn fallback for {n_samples} cells")
+    return skm.pairwise_distances(data, metric=metric, **kwargs).mean()
 
 
 def pearson_delta(
@@ -98,14 +188,14 @@ def edistance(
 
     # Precompute sigma for control data (reused by all perturbations)
     logger.info("Precomputing sigma for control data (real)")
-    precomp_sigma_real = skm.pairwise_distances(
+    precomp_sigma_real = _optimized_pairwise_distances_mean(
         data.ctrl_matrix(which="real", embed_key=embed_key), metric=metric, **kwargs
-    ).mean()
+    )
 
     logger.info("Precomputing sigma for control data (pred)")
-    precomp_sigma_pred = skm.pairwise_distances(
+    precomp_sigma_pred = _optimized_pairwise_distances_mean(
         data.ctrl_matrix(which="pred", embed_key=embed_key), metric=metric, **kwargs
-    ).mean()
+    )
 
     for idx, delta in enumerate(data.iter_cell_arrays(embed_key=embed_key)):
         d_real[idx] = _edistance(
