@@ -129,6 +129,8 @@ class MetricsEvaluator:
         agg_results = pipeline.get_agg_results()
 
         if write_csv:
+            if self.prefix is not None:
+                self.prefix = self.prefix.replace("/", "-") # some prefixes (e.g. HepG2/C3A) may have slashes in them
             outpath = os.path.join(
                 self.outdir,
                 f"{self.prefix}_{basename}" if self.prefix else basename,
