@@ -3,6 +3,8 @@ import importlib.metadata
 import logging
 import os
 
+import pandas as pd
+
 from .. import KNOWN_PROFILES
 from ._const import DEFAULT_CTRL, DEFAULT_OUTDIR, DEFAULT_PERT_COL
 
@@ -59,6 +61,12 @@ def parse_args_run(parser: ap.ArgumentParser):
         "--celltype-col",
         type=str,
         help="Name of the column designated celltype to split results by (optional)",
+    )
+    parser.add_argument(
+        "--batch-key",
+        type=str,
+        default=None,
+        help="Optional column used alongside --celltype-col to further split predicted AnnData",
     )
     parser.add_argument(
         "--embed-key",
@@ -129,7 +137,7 @@ def run_evaluation(args: ap.Namespace):
     import anndata as ad
 
     from cell_eval import MetricsEvaluator
-    from cell_eval.utils import split_anndata_on_celltype
+    from cell_eval.utils import build_celltype_split_specs
 
     # Set metric config for embed key if provided
     metric_kwargs = (
@@ -144,24 +152,35 @@ def run_evaluation(args: ap.Namespace):
 
     skip_metrics = args.skip_metrics.split(",") if args.skip_metrics else None
 
+    if args.batch_key and args.celltype_col is None:
+        raise ValueError("--batch-key requires --celltype-col to be specified")
+
     if args.celltype_col is not None:
         real = ad.read_h5ad(args.adata_real)
         pred = ad.read_h5ad(args.adata_pred)
 
-        real_split = split_anndata_on_celltype(real, args.celltype_col)
-        pred_split = split_anndata_on_celltype(pred, args.celltype_col)
-
-        assert len(real_split) == len(pred_split), (
-            f"Number of celltypes in real and pred anndata must match: {len(real_split)} != {len(pred_split)}"
+        split_specs = build_celltype_split_specs(
+            real=real,
+            pred=pred,
+            celltype_col=args.celltype_col,
+            batch_key=args.batch_key,
         )
 
-        for ct in real_split.keys():
-            real_ct = real_split[ct]
-            pred_ct = pred_split[ct]
+        for split in split_specs:
+            batch_suffix = (
+                f", batch={split.batch}"
+                if split.batch is not None and not pd.isna(split.batch)
+                else ""
+            )
+            logger.info(
+                "Running evaluation for celltype=%s%s",
+                split.celltype,
+                batch_suffix,
+            )
 
             evaluator = MetricsEvaluator(
-                adata_pred=pred_ct,
-                adata_real=real_ct,
+                adata_pred=split.pred,
+                adata_real=split.real,
                 de_pred=args.de_pred,
                 de_real=args.de_real,
                 control_pert=args.control_pert,
@@ -171,7 +190,7 @@ def run_evaluation(args: ap.Namespace):
                 batch_size=args.batch_size,
                 outdir=args.outdir,
                 allow_discrete=args.allow_discrete,
-                prefix=ct,
+                prefix=split.label,
             )
             evaluator.compute(
                 profile=args.profile,
