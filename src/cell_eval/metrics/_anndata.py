@@ -152,13 +152,13 @@ def discrimination_score(
     # Compute perturbation effects for all perturbations
     real_effects = np.vstack(
         [
-            d.perturbation_effect(which="real", abs=True)
+            d.perturbation_effect(which="real", abs=False)
             for d in data.iter_bulk_arrays(embed_key=embed_key)
         ]
     )
     pred_effects = np.vstack(
         [
-            d.perturbation_effect(which="pred", abs=True)
+            d.perturbation_effect(which="pred", abs=False)
             for d in data.iter_bulk_arrays(embed_key=embed_key)
         ]
     )
