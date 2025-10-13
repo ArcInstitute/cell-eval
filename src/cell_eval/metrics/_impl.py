@@ -13,6 +13,7 @@ from ._de import (
     DEDirectionMatch,
     DENsigCounts,
     DESigGenesRecall,
+    DESpearmanLFCBinned,
     DESpearmanLFC,
     DESpearmanSignificant,
     compute_pr_auc,
@@ -118,6 +119,15 @@ metrics_registry.register(
     description="Spearman correlation on log fold changes of significant genes",
     best_value=MetricBestValue.ONE,
     func=DESpearmanLFC,  # type: ignore
+    is_class=True,
+)
+
+metrics_registry.register(
+    name="de_spearman_lfc_binned",
+    metric_type=MetricType.DE,
+    description="Spearman correlation on globally binned log fold changes",
+    best_value=MetricBestValue.ONE,
+    func=DESpearmanLFCBinned,  # type: ignore
     is_class=True,
 )
 

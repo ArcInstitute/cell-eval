@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+import numpy as np
 import polars as pl
 from sklearn.metrics import auc, precision_recall_curve, roc_curve
 
@@ -139,6 +140,86 @@ class DESpearmanLFC:
             correlations.update({row[0]: row[1]})
 
         return correlations
+
+
+class DESpearmanLFCBinned:
+    """Compute Spearman correlation on binned log fold changes across perturbations."""
+
+    def __init__(self, fdr_threshold: float = 0.05, n_bins: int = 4) -> None:
+        if n_bins < 1:
+            raise ValueError("n_bins must be at least 1")
+        self.fdr_threshold = fdr_threshold
+        self.n_bins = n_bins
+
+    def __call__(self, data: DEComparison) -> dict[str, float]:
+        """Compute Spearman correlation using shared log fold change bins."""
+        real_significant = data.real.filter_to_significant(
+            fdr_threshold=self.fdr_threshold
+        )
+        if real_significant.height == 0:
+            return {}
+
+        merged = real_significant.join(
+            data.pred.data,
+            on=[data.real.target_col, data.real.feature_col],
+            suffix="_pred",
+            how="inner",
+        )
+
+        if merged.height == 0:
+            return {}
+
+        log_fc_col = data.real.log2_fold_change_col
+        log_fc_pred_col = f"{log_fc_col}_pred"
+
+        all_log_fold_changes = real_significant.select(log_fc_col).to_numpy().astype(
+            "float64"
+        )
+        flat_log_fold_changes = all_log_fold_changes.flatten()
+
+        if flat_log_fold_changes.size == 0:
+            return {}
+
+        quantile_edges = np.quantile(
+            flat_log_fold_changes,
+            np.linspace(0.0, 1.0, self.n_bins + 1),
+        )
+
+        eps = np.finfo(np.float64).eps
+        for idx in range(1, quantile_edges.size):
+            if quantile_edges[idx] <= quantile_edges[idx - 1]:
+                quantile_edges[idx] = quantile_edges[idx - 1] + eps
+
+        quantile_edges[0] = -np.inf
+        quantile_edges[-1] = np.inf
+        interior_edges = quantile_edges[1:-1]
+
+        merged = merged.with_columns(
+            pl.col(log_fc_col)
+            .map_elements(
+                lambda value: int(np.digitize(value, interior_edges, right=False)),
+                return_dtype=pl.Int32,
+            )
+            .alias("real_bin"),
+            pl.col(log_fc_pred_col)
+            .map_elements(
+                lambda value: int(np.digitize(value, interior_edges, right=False)),
+                return_dtype=pl.Int32,
+            )
+            .alias("pred_bin"),
+        )
+
+        correlation_expr = pl.corr(
+            pl.col("real_bin"), pl.col("pred_bin"), method="spearman"
+        ).alias("spearman_corr")
+
+        results: dict[str, float] = {}
+        for perturbation, correlation in (
+            merged.group_by(data.real.target_col).agg(correlation_expr).iter_rows()
+        ):
+            results[perturbation] = correlation
+
+        return results
 
 
 class DESigGenesRecall:
