@@ -99,6 +99,7 @@ class MetricsEvaluator:
                 de_method=de_method,
                 num_threads=num_threads if num_threads != -1 else mp.cpu_count(),
                 batch_size=batch_size,
+                allow_discrete=allow_discrete,
                 outdir=outdir,
                 prefix=prefix,
                 pdex_kwargs=pdex_kwargs or {},
@@ -161,7 +162,6 @@ def _build_anndata_pair(
     control_pert: str,
     pert_col: str,
     allow_discrete: bool = False,
-    n_cells: int = 100,
 ):
     if isinstance(real, str):
         logger.info(f"Reading real anndata from {real}")
@@ -171,12 +171,8 @@ def _build_anndata_pair(
         pred = ad.read_h5ad(pred)
 
     # Validate that the input is normalized and log-transformed
-    _convert_to_normlog(
-        real, n_cells=n_cells, which="real", allow_discrete=allow_discrete
-    )
-    _convert_to_normlog(
-        pred, n_cells=n_cells, which="pred", allow_discrete=allow_discrete
-    )
+    _convert_to_normlog(real, which="real", allow_discrete=allow_discrete)
+    _convert_to_normlog(pred, which="pred", allow_discrete=allow_discrete)
 
     # Build the anndata pair
     return PerturbationAnndataPair(
@@ -186,7 +182,6 @@ def _build_anndata_pair(
 
 def _convert_to_normlog(
     adata: ad.AnnData,
-    n_cells: int | float = 5e2,
     which: str | None = None,
     allow_discrete: bool = False,
 ):
@@ -194,7 +189,7 @@ def _convert_to_normlog(
 
     Will skip if the input is not integer data.
     """
-    if guess_is_lognorm(adata=adata, n_cells=n_cells):
+    if guess_is_lognorm(adata=adata):
         logger.info(
             "Input is found to be log-normalized already - skipping transformation."
         )
@@ -228,6 +223,7 @@ def _build_de_comparison(
     de_method: str = "wilcoxon",
     num_threads: int = 1,
     batch_size: int = 100,
+    allow_discrete: bool = False,
     outdir: str | None = None,
     prefix: str | None = None,
     pdex_kwargs: dict[str, Any] | None = None,
@@ -240,6 +236,7 @@ def _build_de_comparison(
             de_method=de_method,
             num_threads=num_threads,
             batch_size=batch_size,
+            allow_discrete=allow_discrete,
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
@@ -251,6 +248,7 @@ def _build_de_comparison(
             de_method=de_method,
             num_threads=num_threads,
             batch_size=batch_size,
+            allow_discrete=allow_discrete,
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
@@ -264,6 +262,7 @@ def _build_pdex_kwargs(
     num_workers: int,
     batch_size: int,
     metric: str,
+    allow_discrete: bool,
     pdex_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pdex_kwargs = pdex_kwargs or {}
@@ -277,6 +276,12 @@ def _build_pdex_kwargs(
         pdex_kwargs["batch_size"] = batch_size
     if "metric" not in pdex_kwargs:
         pdex_kwargs["metric"] = metric
+    if "is_log1p" not in pdex_kwargs:
+        if allow_discrete:
+            pdex_kwargs["is_log1p"] = False
+        else:
+            pdex_kwargs["is_log1p"] = True
+
     # always return polars DataFrames
     pdex_kwargs["as_polars"] = True
     return pdex_kwargs
@@ -291,6 +296,7 @@ def _load_or_build_de(
     batch_size: int = 100,
     outdir: str | None = None,
     prefix: str | None = None,
+    allow_discrete: bool = False,
     pdex_kwargs: dict[str, Any] | None = None,
 ) -> pl.DataFrame:
     if de_path is None:
@@ -303,8 +309,10 @@ def _load_or_build_de(
             num_workers=num_threads,
             metric=de_method,
             batch_size=batch_size,
+            allow_discrete=allow_discrete,
             pdex_kwargs=pdex_kwargs or {},
         )
+        logger.info(f"Using the following pdex kwargs: {pdex_kwargs}")
         frame = parallel_differential_expression(
             adata=anndata_pair.real if mode == "real" else anndata_pair.pred,
             **pdex_kwargs,

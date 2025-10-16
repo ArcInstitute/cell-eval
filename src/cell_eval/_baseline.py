@@ -88,6 +88,7 @@ def build_base_mean_adata(
             num_workers=num_threads,
             metric=de_method,
             batch_size=batch_size,
+            allow_discrete=allow_discrete,
             pdex_kwargs=pdex_kwargs,
         )
         frame = parallel_differential_expression(
