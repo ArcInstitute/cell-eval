@@ -162,7 +162,6 @@ def _build_anndata_pair(
     control_pert: str,
     pert_col: str,
     allow_discrete: bool = False,
-    n_cells: int = 100,
 ):
     if isinstance(real, str):
         logger.info(f"Reading real anndata from {real}")
@@ -173,10 +172,10 @@ def _build_anndata_pair(
 
     # Validate that the input is normalized and log-transformed
     _convert_to_normlog(
-        real, n_cells=n_cells, which="real", allow_discrete=allow_discrete
+        real,  which="real", allow_discrete=allow_discrete
     )
     _convert_to_normlog(
-        pred, n_cells=n_cells, which="pred", allow_discrete=allow_discrete
+        pred,  which="pred", allow_discrete=allow_discrete
     )
 
     # Build the anndata pair
@@ -187,7 +186,6 @@ def _build_anndata_pair(
 
 def _convert_to_normlog(
     adata: ad.AnnData,
-    n_cells: int | float = 5e2,
     which: str | None = None,
     allow_discrete: bool = False,
 ):
@@ -195,7 +193,7 @@ def _convert_to_normlog(
 
     Will skip if the input is not integer data.
     """
-    if guess_is_lognorm(adata=adata, n_cells=n_cells):
+    if guess_is_lognorm(adata=adata):
         logger.info(
             "Input is found to be log-normalized already - skipping transformation."
         )
