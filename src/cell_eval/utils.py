@@ -1,11 +1,11 @@
 import anndata as ad
 import numpy as np
+from scipy.sparse import csc_matrix, csr_matrix
 
 
 def guess_is_lognorm(
     adata: ad.AnnData,
-    n_cells: int | float = 5e2,
-    epsilon: float = 1e-2,
+    epsilon: float = 1e-3,
 ) -> bool:
     """Guess if the input is integer counts or log-normalized.
 
@@ -15,17 +15,14 @@ def guess_is_lognorm(
     Returns:
         bool: True if the input is lognorm, False otherwise
     """
-    # Determine the number of cells to use for the guess
-    n_cells = int(min(adata.shape[0], n_cells))
+    if isinstance(adata.X, csr_matrix) or isinstance(adata.X, csc_matrix):
+        frac, _ = np.modf(adata.X.data)
+    elif adata.X is None:
+        raise ValueError("adata.X is None")
+    else:
+        frac, _ = np.modf(adata.X)  # type: ignore
 
-    # Pick a random subset of cells
-    cell_mask = np.random.choice(adata.shape[0], n_cells, replace=False)
-
-    # Sum the counts for each cell
-    cell_sums = adata.X[cell_mask].sum(axis=1)  # type: ignore (can be float but super unlikely)
-
-    # Check if any cell sum's fractional part is greater than epsilon
-    return bool(np.any(np.abs((cell_sums - cell_sums.round())) > epsilon))
+    return bool(np.any(frac > epsilon))
 
 
 def split_anndata_on_celltype(
