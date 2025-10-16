@@ -171,12 +171,8 @@ def _build_anndata_pair(
         pred = ad.read_h5ad(pred)
 
     # Validate that the input is normalized and log-transformed
-    _convert_to_normlog(
-        real,  which="real", allow_discrete=allow_discrete
-    )
-    _convert_to_normlog(
-        pred,  which="pred", allow_discrete=allow_discrete
-    )
+    _convert_to_normlog(real, which="real", allow_discrete=allow_discrete)
+    _convert_to_normlog(pred, which="pred", allow_discrete=allow_discrete)
 
     # Build the anndata pair
     return PerturbationAnndataPair(
