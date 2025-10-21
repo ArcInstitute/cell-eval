@@ -143,6 +143,7 @@ def run_evaluation(args: ap.Namespace):
     )
 
     skip_metrics = args.skip_metrics.split(",") if args.skip_metrics else None
+    pdex_kwargs = dict(exp_post_agg=True, is_log1p=True)
 
     if args.celltype_col is not None:
         real = ad.read_h5ad(args.adata_real)
@@ -154,6 +155,7 @@ def run_evaluation(args: ap.Namespace):
         assert len(real_split) == len(pred_split), (
             f"Number of celltypes in real and pred anndata must match: {len(real_split)} != {len(pred_split)}"
         )
+
 
         for ct in real_split.keys():
             real_ct = real_split[ct]
@@ -173,6 +175,7 @@ def run_evaluation(args: ap.Namespace):
                 allow_discrete=args.allow_discrete,
                 prefix=ct,
                 skip_de=args.profile == "pds",
+                pdex_kwargs=pdex_kwargs,
             )
             evaluator.compute(
                 profile=args.profile,
@@ -195,6 +198,7 @@ def run_evaluation(args: ap.Namespace):
             outdir=args.outdir,
             allow_discrete=args.allow_discrete,
             skip_de=args.profile == "pds",
+            pdex_kwargs=pdex_kwargs,
         )
         evaluator.compute(
             profile=args.profile,
