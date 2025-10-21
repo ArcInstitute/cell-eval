@@ -116,9 +116,24 @@ class MetricsEvaluator:
         write_csv: bool = True,
         break_on_error: bool = False,
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        combined_metric_configs: dict[str, dict[str, Any]] = {}
+        if metric_configs:
+            combined_metric_configs.update(metric_configs)
+
+        for metric_name in ("pr_auc", "roc_auc"):
+            config = combined_metric_configs.get(metric_name, {}).copy()
+            config.update(
+                {
+                    "save_curves": True,
+                    "outdir": self.outdir,
+                    "prefix": self.prefix,
+                }
+            )
+            combined_metric_configs[metric_name] = config
+
         pipeline = MetricPipeline(
             profile=profile,
-            metric_configs=metric_configs,
+            metric_configs=combined_metric_configs,
             break_on_error=break_on_error,
         )
         if skip_metrics is not None:

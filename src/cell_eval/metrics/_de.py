@@ -1,11 +1,17 @@
 """DE metrics module."""
 
+import logging
+from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import polars as pl
 from sklearn.metrics import auc, precision_recall_curve, roc_curve
 
 from .._types import DEComparison, DESortBy
+
+
+logger = logging.getLogger(__name__)
 
 
 def de_overlap_metric(
@@ -212,6 +218,9 @@ def compute_roc_auc(data: DEComparison) -> dict[str, float]:
 def compute_generic_auc(
     data: DEComparison,
     method: Literal["pr", "roc"] = "pr",
+    save_curves: bool = True,
+    outdir: str | Path | None = None,
+    prefix: str | None = None,
 ) -> dict[str, float]:
     """Compute AUC values for significant recovery per perturbation."""
 
@@ -236,6 +245,47 @@ def compute_generic_auc(
         .with_columns((-pl.col(pred_fdr_col).replace(0, 1e-10).log10()).alias("nlp"))
         .drop_nulls(["nlp"])
     )
+
+    labels_all = merged["label"].to_numpy()
+    scores_all = merged["nlp"].to_numpy()
+
+    curve_outdir: Path | None = Path(outdir) if outdir is not None else Path(
+        "./cell-eval-outdir"
+    )
+
+    if save_curves and curve_outdir is not None and 0 < labels_all.sum() < len(labels_all):
+        curve_outdir.mkdir(parents=True, exist_ok=True)
+        match method:
+            case "pr":
+                precision_curve, recall_curve, _ = precision_recall_curve(
+                    labels_all, scores_all
+                )
+                np.save(
+                    curve_outdir
+                    / _curve_filename(prefix, suffix="pr_precision.npy"),
+                    precision_curve.astype(np.float32, copy=False),
+                )
+                np.save(
+                    curve_outdir
+                    / _curve_filename(prefix, suffix="pr_recall.npy"),
+                    recall_curve.astype(np.float32, copy=False),
+                )
+            case "roc":
+                fpr_curve, tpr_curve, _ = roc_curve(labels_all, scores_all)
+                np.save(
+                    curve_outdir / _curve_filename(prefix, suffix="roc_fpr.npy"),
+                    fpr_curve.astype(np.float32, copy=False),
+                )
+                np.save(
+                    curve_outdir / _curve_filename(prefix, suffix="roc_tpr.npy"),
+                    tpr_curve.astype(np.float32, copy=False),
+                )
+            case _:
+                raise ValueError(f"Invalid AUC method: {method}")
+    elif save_curves and curve_outdir is not None:
+        logger.warning(
+            "Skipping curve export for method %s due to degenerate labels", method
+        )
 
     results: dict[str, float] = {}
     for pert in data.iter_perturbations():
@@ -262,3 +312,7 @@ def compute_generic_auc(
                 raise ValueError(f"Invalid AUC method: {method}")
 
     return results
+
+
+def _curve_filename(prefix: str | None, suffix: str) -> str:
+    return f"{prefix}_{suffix}" if prefix else suffix
