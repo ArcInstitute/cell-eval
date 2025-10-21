@@ -12,7 +12,7 @@ from .._types import DEComparison, DESortBy
 def de_overlap_metric(
     data: DEComparison,
     k: int | None,
-    metric: Literal["precision", "overlap"] = "overlap",
+    metric: Literal["precision", "overlap", "jaccard"] = "overlap",
     fdr_threshold: float = 0.05,
     sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
 ) -> dict[str, float]:

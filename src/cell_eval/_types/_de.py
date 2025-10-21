@@ -195,7 +195,7 @@ class DEComparison:
     def compute_overlap(
         self,
         k: int | None,
-        metric: Literal["overlap", "precision"] = "overlap",
+        metric: Literal["overlap", "precision", "jaccard"] = "overlap",
         fdr_threshold: float | None = None,
         sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
     ) -> dict[str, float]:
@@ -235,6 +235,22 @@ class DEComparison:
             # Get sorted gene lists
             real_genes = real_sig_rank_matrix[pert].drop_nulls().to_numpy()
             pred_genes = pred_sig_rank_matrix[pert].drop_nulls().to_numpy()
+
+            if metric == "jaccard":
+                if k is None:
+                    real_subset = real_genes
+                    pred_subset = pred_genes
+                else:
+                    real_subset = real_genes[:k]
+                    pred_subset = pred_genes[:k]
+
+                union = np.union1d(real_subset, pred_subset)
+                if union.size == 0:
+                    overlaps[pert] = 0.0
+                else:
+                    intersection = np.intersect1d(real_subset, pred_subset)
+                    overlaps[pert] = intersection.size / union.size
+                continue
 
             match metric:
                 case "overlap":
