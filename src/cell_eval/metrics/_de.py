@@ -205,14 +205,20 @@ class DENsigCounts:
         return counts
 
 
-def compute_pr_auc(data: DEComparison) -> dict[str, float]:
+def compute_pr_auc(
+    data: DEComparison,
+    **kwargs,
+) -> dict[str, float]:
     """Compute precision-recall AUC per perturbation for significant recovery."""
-    return compute_generic_auc(data, method="pr")
+    return compute_generic_auc(data, method="pr", **kwargs)
 
 
-def compute_roc_auc(data: DEComparison) -> dict[str, float]:
+def compute_roc_auc(
+    data: DEComparison,
+    **kwargs,
+) -> dict[str, float]:
     """Compute ROC AUC per perturbation for significant recovery."""
-    return compute_generic_auc(data, method="roc")
+    return compute_generic_auc(data, method="roc", **kwargs)
 
 
 def compute_generic_auc(
@@ -249,11 +255,15 @@ def compute_generic_auc(
     labels_all = merged["label"].to_numpy()
     scores_all = merged["nlp"].to_numpy()
 
-    curve_outdir: Path | None = Path(outdir) if outdir is not None else Path(
-        "./cell-eval-outdir"
-    )
+    curve_outdir: Path | None = Path(outdir) if outdir is not None else None
+    if save_curves and curve_outdir is None:
+        logger.warning("`save_curves` requested but no output directory provided")
 
-    if save_curves and curve_outdir is not None and 0 < labels_all.sum() < len(labels_all):
+    if (
+        save_curves
+        and curve_outdir is not None
+        and 0 < labels_all.sum() < len(labels_all)
+    ):
         curve_outdir.mkdir(parents=True, exist_ok=True)
         match method:
             case "pr":
