@@ -1,8 +1,9 @@
+import numpy as np
 import polars as pl
 import pytest
 
 from cell_eval._types import DESortBy, initialize_de_comparison
-from cell_eval.metrics import de_overlap_metric, metrics_registry
+from cell_eval.metrics import DESpearmanLFCBinned, de_overlap_metric, metrics_registry
 
 
 def _make_de_frame(features: list[str]) -> pl.DataFrame:
@@ -41,3 +42,36 @@ def test_de_jaccard_overlap():
 
 def test_jaccard_metric_registered():
     assert "jaccard_at_N" in metrics_registry.list_metrics()
+
+
+def test_spearman_binned_handles_constant_bins():
+    features = [f"gene_{idx}" for idx in range(5)]
+    real_fold_change = [1.0, 2.0, 4.0, 8.0, 16.0]
+
+    real = pl.DataFrame(
+        {
+            "target": ["pert"] * len(features),
+            "feature": features,
+            "fold_change": real_fold_change,
+            "p_value": [0.001] * len(features),
+            "fdr": [0.001] * len(features),
+        }
+    )
+
+    pred = pl.DataFrame(
+        {
+            "target": ["pert"] * len(features),
+            "feature": features,
+            "fold_change": [1.0] * len(features),
+            "p_value": [0.001] * len(features),
+            "fdr": [0.001] * len(features),
+        }
+    )
+
+    comparison = initialize_de_comparison(real, pred)
+
+    metric = DESpearmanLFCBinned(fdr_threshold=0.05, n_bins=4)
+    score = metric(comparison)["pert"]
+
+    assert not np.isnan(score)
+    assert score == 0.0

@@ -209,14 +209,35 @@ class DESpearmanLFCBinned:
             .alias("pred_bin"),
         )
 
-        correlation_expr = pl.corr(
-            pl.col("real_bin"), pl.col("pred_bin"), method="spearman"
-        ).alias("spearman_corr")
+        def _spearman_from_numpy(x: np.ndarray, y: np.ndarray) -> float:
+            if x.size < 2 or y.size < 2:
+                return float("nan")
+            corr_df = pl.DataFrame({"x": x, "y": y}).select(
+                pl.corr(pl.col("x"), pl.col("y"), method="spearman").alias(
+                    "spearman_corr"
+                )
+            )
+            value = corr_df.row(0)[0]
+            return float(value) if value is not None else float("nan")
 
         results: dict[str, float] = {}
-        for perturbation, correlation in (
-            merged.group_by(data.real.target_col).agg(correlation_expr).iter_rows()
-        ):
+        for perturbation in data.iter_perturbations():
+            pert_frame = merged.filter(pl.col(data.real.target_col) == perturbation)
+            if pert_frame.height == 0:
+                continue
+
+            real_bins = pert_frame["real_bin"].to_numpy().astype("float64")
+            pred_bins = pert_frame["pred_bin"].to_numpy().astype("float64")
+            correlation = _spearman_from_numpy(real_bins, pred_bins)
+
+            if np.isnan(correlation):
+                real_vals = pert_frame[log_fc_col].to_numpy().astype("float64")
+                pred_vals = pert_frame[log_fc_pred_col].to_numpy().astype("float64")
+                correlation = _spearman_from_numpy(real_vals, pred_vals)
+
+            if np.isnan(correlation):
+                correlation = 0.0
+
             results[perturbation] = correlation
 
         return results
