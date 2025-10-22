@@ -9,6 +9,17 @@ from sklearn.metrics import auc, precision_recall_curve, roc_curve
 from .._types import DEComparison, DESortBy
 
 
+def _spearman_from_numpy(x: np.ndarray, y: np.ndarray) -> float:
+    """Return Spearman correlation for the provided vectors or NaN if undefined."""
+    if x.size < 2 or y.size < 2:
+        return float("nan")
+    corr_df = pl.DataFrame({"x": x, "y": y}).select(
+        pl.corr(pl.col("x"), pl.col("y"), method="spearman").alias("spearman_corr")
+    )
+    value = corr_df.row(0)[0]
+    return float(value) if value is not None else float("nan")
+
+
 def de_overlap_metric(
     data: DEComparison,
     k: int | None,
@@ -115,7 +126,7 @@ class DESpearmanLFC:
 
     def __call__(self, data: DEComparison) -> dict[str, float]:
         """Compute correlation between log fold changes of significant genes."""
-        correlations = {}
+        correlations: dict[str, float] = {}
 
         merged = data.real.filter_to_significant(fdr_threshold=self.fdr_threshold).join(
             data.pred.data,
@@ -124,20 +135,32 @@ class DESpearmanLFC:
             how="inner",
         )
 
-        for row in (
-            merged.group_by(
-                data.real.target_col,
-            )
-            .agg(
-                pl.corr(
-                    pl.col(data.real.fold_change_col),
-                    pl.col(f"{data.real.fold_change_col}_pred"),
-                    method="spearman",
-                ).alias("spearman_corr"),
-            )
-            .iter_rows()
-        ):
-            correlations.update({row[0]: row[1]})
+        if merged.height == 0:
+            return correlations
+
+        real_fc_col = data.real.fold_change_col
+        pred_fc_col = f"{real_fc_col}_pred"
+        real_log_fc_col = data.real.log2_fold_change_col
+        pred_log_fc_col = f"{real_log_fc_col}_pred"
+
+        for pert in data.iter_perturbations():
+            pert_frame = merged.filter(pl.col(data.real.target_col) == pert)
+            if pert_frame.height == 0:
+                continue
+
+            real_vals = pert_frame[real_fc_col].to_numpy().astype("float64")
+            pred_vals = pert_frame[pred_fc_col].to_numpy().astype("float64")
+            correlation = _spearman_from_numpy(real_vals, pred_vals)
+
+            if np.isnan(correlation):
+                real_log_vals = pert_frame[real_log_fc_col].to_numpy().astype("float64")
+                pred_log_vals = pert_frame[pred_log_fc_col].to_numpy().astype("float64")
+                correlation = _spearman_from_numpy(real_log_vals, pred_log_vals)
+
+            if np.isnan(correlation):
+                correlation = 0.0
+
+            correlations[pert] = correlation
 
         return correlations
 
@@ -208,17 +231,6 @@ class DESpearmanLFCBinned:
             )
             .alias("pred_bin"),
         )
-
-        def _spearman_from_numpy(x: np.ndarray, y: np.ndarray) -> float:
-            if x.size < 2 or y.size < 2:
-                return float("nan")
-            corr_df = pl.DataFrame({"x": x, "y": y}).select(
-                pl.corr(pl.col("x"), pl.col("y"), method="spearman").alias(
-                    "spearman_corr"
-                )
-            )
-            value = corr_df.row(0)[0]
-            return float(value) if value is not None else float("nan")
 
         results: dict[str, float] = {}
         for perturbation in data.iter_perturbations():
