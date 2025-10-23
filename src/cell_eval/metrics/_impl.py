@@ -107,6 +107,7 @@ metrics_registry.register(
         "fdr_threshold": 0.05,
         "max_de": 15,
         "seed": 42,
+        "num_samples": 10,
     },
 )
 

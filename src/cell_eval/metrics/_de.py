@@ -124,14 +124,22 @@ def random_jaccard_metric(
     max_genes: int = 20,
     fdr_threshold: float = 0.05,
     max_de: int = 15,
+    num_samples: int = 1,
 ) -> dict[str, float]:
-    """Compute Jaccard overlap on a single random subset of genes per perturbation."""
+    """Compute Jaccard overlap on random subsets of genes per perturbation.
+
+    The metric samples `num_samples` subsets per perturbation (each between
+    `min_genes` and `max_genes` genes with between 1 and `max_de` DE genes) and
+    returns the average Jaccard score across those samples.
+    """
     if min_genes < 1:
         raise ValueError("min_genes must be at least 1")
     if max_genes < min_genes:
         raise ValueError("max_genes must be greater than or equal to min_genes")
     if max_de < 1:
         raise ValueError("max_de must be at least 1")
+    if num_samples < 1:
+        raise ValueError("num_samples must be at least 1")
 
     rng = random.Random(seed)
     results: dict[str, float] = {}
@@ -151,48 +159,53 @@ def random_jaccard_metric(
             results[perturbation] = 0.0
             continue
 
+        real_genes = real_subset.get_column(feature_col).to_list()
+        real_fdrs = real_subset.get_column(fdr_col).to_list()
         records = [
-            _RandomGeneRecord(
-                gene=row[0],
-                rank=float(index),
-                fdr=float(row[1]),
-            )
-            for index, row in enumerate(real_subset.iter_rows())
+            _RandomGeneRecord(gene=gene, rank=float(idx), fdr=float(fdr))
+            for idx, (gene, fdr) in enumerate(zip(real_genes, real_fdrs))
         ]
-
-        sampled_records = _choose_grouped_subset(
-            records=records,
-            rng=rng,
-            min_genes=min_genes,
-            max_genes=max_genes,
-            fdr_threshold=fdr_threshold,
-            max_de=max_de,
-        )
-
-        if not sampled_records:
-            results[perturbation] = 0.0
-            continue
-
-        sampled_genes = [record.gene for record in sampled_records]
-        real_de_genes = {record.gene for record in sampled_records if record.fdr <= fdr_threshold}
 
         pred_subset = (
             data.pred.data.filter(pl.col(target_col) == perturbation)
-            .filter(pl.col(feature_col).is_in(sampled_genes))
+            .filter(pl.col(feature_col).is_in(real_genes))
             .select([feature_col, data.pred.fdr_col])
         )
         pred_fdr_map = {row[0]: float(row[1]) for row in pred_subset.iter_rows()}
-        pred_de_genes = {
-            gene for gene in sampled_genes if pred_fdr_map.get(gene, float("inf")) <= fdr_threshold
-        }
 
-        union = real_de_genes | pred_de_genes
-        if not union:
-            score = 0.0
-        else:
-            score = len(real_de_genes & pred_de_genes) / len(union)
+        total_score = 0.0
+        for _ in range(num_samples):
+            sampled_records = _choose_grouped_subset(
+                records=records,
+                rng=rng,
+                min_genes=min_genes,
+                max_genes=max_genes,
+                fdr_threshold=fdr_threshold,
+                max_de=max_de,
+            )
 
-        results[perturbation] = float(score)
+            if not sampled_records:
+                score = 0.0
+            else:
+                sampled_genes = [record.gene for record in sampled_records]
+                real_de_genes = {
+                    record.gene
+                    for record in sampled_records
+                    if record.fdr <= fdr_threshold
+                }
+                pred_de_genes = {
+                    gene
+                    for gene in sampled_genes
+                    if pred_fdr_map.get(gene, float("inf")) <= fdr_threshold
+                }
+                union = real_de_genes | pred_de_genes
+                score = (
+                    0.0 if not union else len(real_de_genes & pred_de_genes) / len(union)
+                )
+
+            total_score += score
+
+        results[perturbation] = float(total_score / num_samples)
 
     return results
 
