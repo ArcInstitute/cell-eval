@@ -19,6 +19,7 @@ from ._de import (
     compute_pr_auc,
     compute_roc_auc,
     de_overlap_metric,
+    random_jaccard_metric,
 )
 from ._registry import MetricRegistry
 
@@ -93,6 +94,21 @@ for metric in ["overlap", "precision", "jaccard"]:
             func=de_overlap_metric,
             kwargs={"k": n, "metric": metric},
         )
+
+metrics_registry.register(
+    name="random_jaccard_at_20",
+    metric_type=MetricType.DE,
+    description="Jaccard overlap on a random 10-20 gene subset per perturbation.",
+    best_value=MetricBestValue.ONE,
+    func=random_jaccard_metric,
+    kwargs={
+        "min_genes": 10,
+        "max_genes": 20,
+        "fdr_threshold": 0.05,
+        "max_de": 15,
+        "seed": 42,
+    },
+)
 
 
 metrics_registry.register(

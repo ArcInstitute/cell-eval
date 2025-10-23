@@ -1,5 +1,7 @@
 """DE metrics module."""
 
+import random
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -7,6 +9,13 @@ import polars as pl
 from sklearn.metrics import auc, precision_recall_curve, roc_curve
 
 from .._types import DEComparison, DESortBy
+
+
+@dataclass(frozen=True)
+class _RandomGeneRecord:
+    gene: str
+    rank: float
+    fdr: float
 
 
 def _spearman_from_numpy(x: np.ndarray, y: np.ndarray) -> float:
@@ -18,6 +27,74 @@ def _spearman_from_numpy(x: np.ndarray, y: np.ndarray) -> float:
     )
     value = corr_df.row(0)[0]
     return float(value) if value is not None else float("nan")
+
+
+def _choose_grouped_subset(
+    records: list[_RandomGeneRecord],
+    rng: random.Random,
+    min_genes: int,
+    max_genes: int,
+    fdr_threshold: float,
+    max_de: int,
+) -> list[_RandomGeneRecord]:
+    if len(records) < min_genes:
+        return []
+
+    de_pool = [record for record in records if record.fdr <= fdr_threshold]
+    non_de_pool = [record for record in records if record.fdr > fdr_threshold]
+
+    if not de_pool:
+        return []
+
+    max_total = min(len(records), max_genes)
+    feasible_counts: list[int] = []
+    for count in range(min_genes, max_total + 1):
+        max_de_possible = min(max_de, count, len(de_pool))
+        min_de_required = max(1, count - len(non_de_pool))
+        if min_de_required <= max_de_possible:
+            feasible_counts.append(count)
+
+    if not feasible_counts:
+        return []
+
+    selected_count = rng.choice(feasible_counts)
+    max_de_possible = min(max_de, selected_count, len(de_pool))
+    min_de_required = max(1, selected_count - len(non_de_pool))
+    if min_de_required > max_de_possible:
+        return []
+
+    if max_de_possible == min_de_required:
+        de_count = min_de_required
+    else:
+        de_count = rng.randint(min_de_required, max_de_possible)
+    non_de_count = selected_count - de_count
+
+    selected: list[_RandomGeneRecord] = []
+
+    if len(de_pool) <= de_count:
+        selected_de = list(de_pool)
+    else:
+        selected_de = rng.sample(de_pool, de_count)
+    selected.extend(selected_de)
+
+    if non_de_count > 0:
+        if len(non_de_pool) <= non_de_count:
+            selected_non = list(non_de_pool)[:non_de_count]
+        else:
+            selected_non = rng.sample(non_de_pool, non_de_count)
+        selected.extend(selected_non)
+
+    if len(selected) < selected_count:
+        excluded = {(record.gene, record.rank) for record in selected}
+        remaining = [
+            record for record in records if (record.gene, record.rank) not in excluded
+        ]
+        remaining.sort(key=lambda record: (record.rank, record.gene))
+        needed = selected_count - len(selected)
+        selected.extend(remaining[:needed])
+
+    selected.sort(key=lambda record: (record.rank, record.gene))
+    return selected
 
 
 def de_overlap_metric(
@@ -38,6 +115,86 @@ def de_overlap_metric(
         fdr_threshold=fdr_threshold,
         sort_by=sort_by,
     )
+
+
+def random_jaccard_metric(
+    data: DEComparison,
+    seed: int = 42,
+    min_genes: int = 10,
+    max_genes: int = 20,
+    fdr_threshold: float = 0.05,
+    max_de: int = 15,
+) -> dict[str, float]:
+    """Compute Jaccard overlap on a single random subset of genes per perturbation."""
+    if min_genes < 1:
+        raise ValueError("min_genes must be at least 1")
+    if max_genes < min_genes:
+        raise ValueError("max_genes must be greater than or equal to min_genes")
+    if max_de < 1:
+        raise ValueError("max_de must be at least 1")
+
+    rng = random.Random(seed)
+    results: dict[str, float] = {}
+    target_col = data.real.target_col
+    feature_col = data.real.feature_col
+    fdr_col = data.real.fdr_col
+    sort_col = data.real.abs_log2_fold_change_col
+
+    for perturbation in data.iter_perturbations():
+        real_subset = (
+            data.real.data.filter(pl.col(target_col) == perturbation)
+            .sort(sort_col, descending=True)
+            .select([feature_col, fdr_col])
+        )
+
+        if real_subset.height < min_genes:
+            results[perturbation] = 0.0
+            continue
+
+        records = [
+            _RandomGeneRecord(
+                gene=row[0],
+                rank=float(index),
+                fdr=float(row[1]),
+            )
+            for index, row in enumerate(real_subset.iter_rows())
+        ]
+
+        sampled_records = _choose_grouped_subset(
+            records=records,
+            rng=rng,
+            min_genes=min_genes,
+            max_genes=max_genes,
+            fdr_threshold=fdr_threshold,
+            max_de=max_de,
+        )
+
+        if not sampled_records:
+            results[perturbation] = 0.0
+            continue
+
+        sampled_genes = [record.gene for record in sampled_records]
+        real_de_genes = {record.gene for record in sampled_records if record.fdr <= fdr_threshold}
+
+        pred_subset = (
+            data.pred.data.filter(pl.col(target_col) == perturbation)
+            .filter(pl.col(feature_col).is_in(sampled_genes))
+            .select([feature_col, data.pred.fdr_col])
+        )
+        pred_fdr_map = {row[0]: float(row[1]) for row in pred_subset.iter_rows()}
+        pred_de_genes = {
+            gene for gene in sampled_genes if pred_fdr_map.get(gene, float("inf")) <= fdr_threshold
+        }
+
+        union = real_de_genes | pred_de_genes
+        if not union:
+            score = 0.0
+        else:
+            score = len(real_de_genes & pred_de_genes) / len(union)
+
+        results[perturbation] = float(score)
+
+    return results
 
 
 class DESpearmanSignificant:

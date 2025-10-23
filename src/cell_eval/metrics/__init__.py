@@ -19,6 +19,7 @@ from ._de import (
     compute_pr_auc,
     compute_roc_auc,
     de_overlap_metric,
+    random_jaccard_metric,
 )
 from ._impl import metrics_registry
 from .base import Metric, MetricInfo, MetricResult
@@ -36,6 +37,7 @@ __all__ = [
     "DEDirectionMatch",
     "DESpearmanSignificant",
     "de_overlap_metric",
+    "random_jaccard_metric",
     "DESpearmanLFC",
     "DESpearmanLFCBinned",
     "compute_pr_auc",
