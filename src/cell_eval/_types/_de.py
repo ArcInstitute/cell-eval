@@ -82,6 +82,7 @@ class DEResults:
         logger.info(f"Checking DE data integrity... ({self.name})")
         fc_num_null = self.data.filter(pl.col(self.fold_change_col).is_null()).height
         fc_num_inf = self.data.filter(pl.col(self.fold_change_col).is_infinite()).height
+        fc_num_nan = self.data.filter(pl.col(self.fold_change_col).is_nan()).height
         if fc_num_null > 0:
             logger.warning(
                 f"Identified {fc_num_null} missing fold change values ({self.name})"
@@ -89,6 +90,10 @@ class DEResults:
         if fc_num_inf > 0:
             logger.warning(
                 f"Identified {fc_num_inf} infinite fold change values ({self.name})"
+            )
+        if fc_num_nan > 0:
+            logger.warning(
+                f"Identified {fc_num_nan} NaN fold change values ({self.name})"
             )
         logger.info(f"DE data integrity check complete. ({self.name})")
 
