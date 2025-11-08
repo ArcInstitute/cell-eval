@@ -3,6 +3,7 @@ uv.lock
 eval_output/
 **/celltype*csv
 .DS_Store
+.idea/*
 
 
 ## Custom State-Eval Ignores

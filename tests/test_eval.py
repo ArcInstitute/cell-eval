@@ -91,6 +91,28 @@ def test_broken_adata_not_normlog_skip_check():
     )
 
 
+def test_broken_adata_invalid_pred_scale():
+    """Test that predicted data with invalid scale is rejected."""
+    adata_real = build_random_anndata(normlog=True)
+    adata_pred = adata_real.copy()
+
+    # Create invalid predicted data: mix of raw counts and log1p
+    adata_pred.X = np.random.uniform(
+        0,
+        5000,
+        size=adata_pred.X.shape,  # type: ignore
+    )
+
+    with pytest.raises(ValueError, match="Invalid scale.*exceeds log1p threshold"):
+        MetricsEvaluator(
+            adata_pred=adata_pred,
+            adata_real=adata_real,
+            control_pert=CONTROL_VAR,
+            pert_col=PERT_COL,
+            outdir=OUTDIR,
+        )
+
+
 def test_broken_adata_missing_pertcol_in_real():
     adata_real = build_random_anndata()
     adata_pred = adata_real.copy()
