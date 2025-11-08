@@ -189,9 +189,7 @@ def _convert_to_normlog(
 
     Will skip if the input is not integer data.
     """
-    validate_scale = which == "pred"
-
-    if guess_is_lognorm(adata=adata, validate=validate_scale):
+    if guess_is_lognorm(adata=adata, validate=not allow_discrete):
         logger.info(
             "Input is found to be log-normalized already - skipping transformation."
         )
