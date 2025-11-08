@@ -10,6 +10,12 @@ def test_is_lognorm_true():
     assert guess_is_lognorm(data)
 
 
+def test_is_lognorm_view():
+    data = build_random_anndata(normlog=True)
+    sub = data[:100]
+    assert guess_is_lognorm(sub)
+
+
 def test_is_lognorm_false():
     data = build_random_anndata(normlog=False)
     assert not guess_is_lognorm(data)

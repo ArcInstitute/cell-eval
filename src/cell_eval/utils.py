@@ -37,6 +37,10 @@ def guess_is_lognorm(
     # Check for fractional values
     if isinstance(adata.X, csr_matrix) or isinstance(adata.X, csc_matrix):
         frac, _ = np.modf(adata.X.data)
+    elif adata.isview:
+        frac, _ = np.modf(adata.X.toarray())
+    elif adata.X is None:
+        raise ValueError("adata.X is None")
     else:
         frac, _ = np.modf(adata.X)  # type: ignore
 
