@@ -97,7 +97,11 @@ def test_broken_adata_invalid_pred_scale():
     adata_pred = adata_real.copy()
 
     # Create invalid predicted data: mix of raw counts and log1p
-    adata_pred.X = np.random.uniform(0, 5000, size=adata_pred.X.shape)
+    adata_pred.X = np.random.uniform(
+        0,
+        5000,
+        size=adata_pred.X.shape,  # type: ignore
+    )
 
     with pytest.raises(ValueError, match="Invalid scale.*exceeds log1p threshold"):
         MetricsEvaluator(
@@ -107,6 +111,7 @@ def test_broken_adata_invalid_pred_scale():
             pert_col=PERT_COL,
             outdir=OUTDIR,
         )
+
 
 def test_broken_adata_missing_pertcol_in_real():
     adata_real = build_random_anndata()
