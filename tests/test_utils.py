@@ -25,11 +25,8 @@ def test_guess_is_lognorm_valid_lognorm():
     """Test that valid log1p normalized data returns True."""
     data = build_random_anndata(normlog=True, random_state=42)
     # Should return True without raising exception
-    assert (
-        guess_is_lognorm(
-            data,
-        )
-        is True
+    assert guess_is_lognorm(
+        data,
     )
 
 
@@ -37,11 +34,8 @@ def test_guess_is_lognorm_valid_lognorm_sparse():
     """Test that valid log1p normalized sparse data returns True."""
     data = build_random_anndata(normlog=True, as_sparse=True, random_state=42)
     # Should return True without raising exception
-    assert (
-        guess_is_lognorm(
-            data,
-        )
-        is True
+    assert guess_is_lognorm(
+        data,
     )
 
 
@@ -49,11 +43,8 @@ def test_guess_is_lognorm_integer_data():
     """Test that integer data (raw counts) returns False."""
     data = build_random_anndata(normlog=False, random_state=42)
     # Should return False - integer data indicates raw counts
-    assert (
-        guess_is_lognorm(
-            data,
-        )
-        is False
+    assert not guess_is_lognorm(
+        data,
     )
 
 
@@ -67,11 +58,8 @@ def test_guess_is_lognorm_edge_case_near_threshold():
         size=data.X.shape,  # type: ignore
     )
     # Should return True without raising exception
-    assert (
-        guess_is_lognorm(
-            data,
-        )
-        is True
+    assert guess_is_lognorm(
+        data,
     )
 
 
