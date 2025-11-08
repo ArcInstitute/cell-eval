@@ -63,7 +63,7 @@ def test_guess_is_lognorm_edge_case_near_threshold():
     # Modify data to have values near threshold (10.9)
     data.X = np.random.uniform(
         0,
-        10.9,
+        14.9,
         size=data.X.shape,  # type: ignore
     )
     # Should return True without raising exception
@@ -81,7 +81,7 @@ def test_guess_is_lognorm_exceeds_threshold():
     # Modify data to exceed threshold (mix of valid and invalid)
     data.X = np.random.uniform(
         0,
-        11.1,
+        15.1,
         size=data.X.shape,  # type: ignore
     )
 
