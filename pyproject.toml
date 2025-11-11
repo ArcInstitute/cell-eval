@@ -11,7 +11,7 @@ authors = [
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "igraph>=0.11.8",
-    "pdex>=0.1.25",
+    "pdex>=0.1.26",
     "polars>=1.30.0",
     "pyyaml>=6.0.2",
     "scanpy>=1.10.3",
