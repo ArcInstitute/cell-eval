@@ -244,8 +244,8 @@ def strip_anndata(
                 output_path,
                 "-C",
                 temp_dir,
-                "pred.h5ad.zst",
                 "watermark.txt",
+                "pred.h5ad.zst",
             ]
         )
 
