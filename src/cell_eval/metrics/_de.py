@@ -199,19 +199,24 @@ class DENsigCounts:
         return counts
 
 
-def compute_pr_auc(data: DEComparison) -> dict[str, float]:
+def compute_pr_auc(
+    data: DEComparison, fdr_threshold: float = 0.05
+) -> dict[str, float]:
     """Compute precision-recall AUC per perturbation for significant recovery."""
-    return compute_generic_auc(data, method="pr")
+    return compute_generic_auc(data, method="pr", fdr_threshold=fdr_threshold)
 
 
-def compute_roc_auc(data: DEComparison) -> dict[str, float]:
+def compute_roc_auc(
+    data: DEComparison, fdr_threshold: float = 0.05
+) -> dict[str, float]:
     """Compute ROC AUC per perturbation for significant recovery."""
-    return compute_generic_auc(data, method="roc")
+    return compute_generic_auc(data, method="roc", fdr_threshold=fdr_threshold)
 
 
 def compute_generic_auc(
     data: DEComparison,
     method: Literal["pr", "roc"] = "pr",
+    fdr_threshold: float = 0.05,
 ) -> dict[str, float]:
     """Compute AUC values for significant recovery per perturbation."""
 
@@ -221,7 +226,7 @@ def compute_generic_auc(
     pred_fdr_col = data.pred.fdr_col
 
     labeled_real = data.real.data.with_columns(
-        (pl.col(real_fdr_col) < 0.05).cast(pl.Float32).alias("label")
+        (pl.col(real_fdr_col) < fdr_threshold).cast(pl.Float32).alias("label")
     ).select([target_col, feature_col, "label"])
 
     merged = (
