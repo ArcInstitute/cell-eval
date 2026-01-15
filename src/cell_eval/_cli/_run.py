@@ -1,5 +1,4 @@
 import argparse as ap
-import concurrent.futures as cf
 import importlib.metadata
 import logging
 import os
@@ -117,12 +116,6 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="k for top_k_accuracy (number of nearest neighbors) [default: %(default)s]",
     )
     parser.add_argument(
-        "--ctrl-barcode-col",
-        type=str,
-        default=None,
-        help="Column name for control barcode matching in top_k_accuracy (optional)",
-    )
-    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s {version}".format(
@@ -156,7 +149,7 @@ def run_evaluation(args: ap.Namespace):
         else {}
     )
 
-    # Always pass top-k and ctrl_barcode_col for top_k_accuracy
+    # Always pass top-k for top_k_accuracy
     metric_kwargs.setdefault("top_k_accuracy", {})["k"] = args.topk
 
     skip_metrics = args.skip_metrics.split(",") if args.skip_metrics else None
@@ -172,7 +165,7 @@ def run_evaluation(args: ap.Namespace):
             f"Number of celltypes in real and pred anndata must match: {len(real_split)} != {len(pred_split)}"
         )
 
-        def _run_for_celltype(ct: str):
+        for ct in real_split.keys():
             real_ct = real_split[ct]
             pred_ct = pred_split[ct]
 
@@ -197,23 +190,6 @@ def run_evaluation(args: ap.Namespace):
                 skip_metrics=skip_metrics,
                 basename="results.csv",
             )
-            return ct
-
-        max_workers = args.num_threads if args.num_threads and args.num_threads > 1 else 1
-        if max_workers == 1:
-            for ct in real_split.keys():
-                _run_for_celltype(ct)
-        else:
-            logger.info(f"Parallelizing over celltypes with {max_workers} threads")
-            with cf.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(_run_for_celltype, ct): ct for ct in real_split.keys()}
-                for fut in cf.as_completed(futures):
-                    ct = futures[fut]
-                    try:
-                        fut.result()
-                        logger.info(f"Completed evaluation for celltype: {ct}")
-                    except Exception as e:
-                        logger.exception(f"Evaluation failed for celltype {ct}: {e}")
 
     else:
         evaluator = MetricsEvaluator(
