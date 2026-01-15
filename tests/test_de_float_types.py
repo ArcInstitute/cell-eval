@@ -16,9 +16,7 @@ def test_de_spearman_lfc_mixed_float_types() -> None:
         }
     )
 
-    pred_df = real_df.with_columns(
-        pl.col("fold_change").cast(pl.Float64)
-    )
+    pred_df = real_df.with_columns(pl.col("fold_change").cast(pl.Float64))
 
     comparison = DEComparison(
         real=DEResults(real_df, name="real"),
