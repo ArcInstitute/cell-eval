@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 VALID_ENCODINGS = [64, 32]
 EXPECTED_GENE_DIM = 18080
-MAX_CELL_DIM = 200000
+MAX_CELL_DIM = 100000
 
 
 def parse_args_prep(parser: ap.ArgumentParser):

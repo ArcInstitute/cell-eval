@@ -197,6 +197,67 @@ def discrimination_score(
 
     return norm_ranks
 
+def top_k_accuracy(
+    data,
+    k: int = 10,
+    metric: str = "l2",
+    embed_key: str | None = None,
+) -> dict[str, float]:
+    """
+    Top-k accuracy over pseudo-bulked perturbation profiles.
+
+    For each perturbation, we compute one vector for real and one for predicted
+    (pseudobulk/mean per perturbation). We then compare each predicted
+    perturbation vector against all real perturbation vectors and mark a hit if
+    the correct real perturbation is within the top-k closest.
+
+    Args:
+        data: PerturbationAnndataPair
+        k: number of nearest neighbors to consider per perturbation
+        metric: one of {"l2", "euclidean", "cosine"}
+        embed_key: optional key for .obsm
+    """
+
+    if k <= 0:
+        raise ValueError("Parameter `k` must be positive.")
+
+    metric = metric.lower()
+    if metric in {"l2", "euclidean"}:
+        dist_metric = "euclidean"
+    elif metric == "cosine":
+        dist_metric = "cosine"
+    else:
+        raise ValueError(f"Unsupported metric: {metric}")
+
+    # Build one vector per perturbation (exclude control) in a consistent order
+    real_vectors: list[np.ndarray] = []
+    pred_vectors: list[np.ndarray] = []
+    perts_order: list[str] = []
+    for bulk in data.iter_bulk_arrays(embed_key=embed_key):
+        perts_order.append(bulk.key)
+        real_vectors.append(bulk.pert_real)
+        pred_vectors.append(bulk.pert_pred)
+
+    if not real_vectors:
+        return {}
+
+    real_mat = np.vstack(real_vectors)
+    pred_mat = np.vstack(pred_vectors)
+
+    # Compute distance matrix between predicted and real pseudo-bulks
+    D = skm.pairwise_distances(pred_mat, real_mat, metric=dist_metric)
+
+    n_real = D.shape[1]
+    k_eff = int(min(max(1, k), n_real))
+
+    scores: dict[str, float] = {}
+    for i, pert in enumerate(perts_order):
+        # indices of k smallest distances
+        idx = np.argpartition(D[i], k_eff - 1)[:k_eff]
+        scores[str(pert)] = 1.0 if i in idx else 0.0
+
+    return scores
+
 
 def _generic_evaluation(
     data: PerturbationAnndataPair,
@@ -329,12 +390,25 @@ class ClusteringAgreement:
         self._cluster_leiden(
             ad_real_cent, self.real_resolution, real_key, self.n_neighbors
         )
-        ad_real_cent.obs = ad_real_cent.obs.set_index(data.pert_col).loc[cats_sorted]
+        # reorder rows to match cats_sorted without using DataFrame.set_index (type stubs issue)
+        idx_real = (
+            pd.Series(np.arange(ad_real_cent.n_obs),
+                      index=ad_real_cent.obs[data.pert_col].to_numpy())
+            .loc[cats_sorted]
+            .to_numpy()
+        )
+        ad_real_cent = ad_real_cent[idx_real]
         real_labels = pd.Categorical(ad_real_cent.obs[real_key])
 
         # 4. sweep predicted resolutions
         best_score = 0.0
-        ad_pred_cent.obs = ad_pred_cent.obs.set_index(data.pert_col).loc[cats_sorted]
+        idx_pred = (
+            pd.Series(np.arange(ad_pred_cent.n_obs),
+                      index=ad_pred_cent.obs[data.pert_col].to_numpy())
+            .loc[cats_sorted]
+            .to_numpy()
+        )
+        ad_pred_cent = ad_pred_cent[idx_pred]
         for r in self.pred_resolutions:
             pred_key = f"pred_clusters_{r}"
             self._cluster_leiden(ad_pred_cent, r, pred_key, self.n_neighbors)

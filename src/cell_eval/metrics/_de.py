@@ -3,7 +3,7 @@
 from typing import Literal
 
 import polars as pl
-from sklearn.metrics import auc, average_precision_score, roc_curve
+from sklearn.metrics import auc, precision_recall_curve, roc_curve
 
 from .._types import DEComparison, DESortBy
 
@@ -85,7 +85,7 @@ class DEDirectionMatch:
         """Compute directional agreement between real and predicted DE genes."""
         matches = {}
 
-        merged = data.real.filter_to_significant(fdr_threshold=self.fdr_threshold).join(
+        merged = data.real.filter_to_significant(fdr_threshold=0.05).join(
             data.pred.data,
             on=[data.real.target_col, data.real.feature_col],
             suffix="_pred",
@@ -129,8 +129,8 @@ class DESpearmanLFC:
             )
             .agg(
                 pl.corr(
-                    pl.col(data.real.fold_change_col).cast(pl.Float64),
-                    pl.col(f"{data.real.fold_change_col}_pred").cast(pl.Float64),
+                    pl.col(data.real.fold_change_col),
+                    pl.col(f"{data.real.fold_change_col}_pred"),
                     method="spearman",
                 ).alias("spearman_corr"),
             )
@@ -253,7 +253,8 @@ def compute_generic_auc(
 
         match method:
             case "pr":
-                results[pert] = float(average_precision_score(labels, scores))
+                precision, recall, _ = precision_recall_curve(labels, scores)
+                results[pert] = float(auc(recall, precision))
             case "roc":
                 fpr, tpr, _ = roc_curve(labels, scores)
                 results[pert] = float(auc(fpr, tpr))

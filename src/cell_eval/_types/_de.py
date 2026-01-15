@@ -32,10 +32,7 @@ def initialize_de_comparison(
         abs_log2_fold_change_col=abs_log2_fold_change_col,
     )
     with pl.StringCache():
-        return DEComparison(
-            real=partial_de_result(real, name="real"),
-            pred=partial_de_result(pred, name="pred"),
-        )
+        return DEComparison(real=partial_de_result(real), pred=partial_de_result(pred))
 
 
 @dataclass(frozen=False)
@@ -52,7 +49,6 @@ class DEResults:
     abs_log2_fold_change_col: str = "abs_log2_fold_change"
     pvalue_col: str = "p_value"
     fdr_col: str = "fdr"
-    name: str = "de"
 
     def __post_init__(self) -> None:
         required_cols = {
@@ -78,24 +74,6 @@ class DEResults:
             self.target_col,
             self.feature_col,
         ]
-
-        logger.info(f"Checking DE data integrity... ({self.name})")
-        fc_num_null = self.data.filter(pl.col(self.fold_change_col).is_null()).height
-        fc_num_inf = self.data.filter(pl.col(self.fold_change_col).is_infinite()).height
-        fc_num_nan = self.data.filter(pl.col(self.fold_change_col).is_nan()).height
-        if fc_num_null > 0:
-            logger.warning(
-                f"Identified {fc_num_null} missing fold change values ({self.name})"
-            )
-        if fc_num_inf > 0:
-            logger.warning(
-                f"Identified {fc_num_inf} infinite fold change values ({self.name})"
-            )
-        if fc_num_nan > 0:
-            logger.warning(
-                f"Identified {fc_num_nan} NaN fold change values ({self.name})"
-            )
-        logger.info(f"DE data integrity check complete. ({self.name})")
 
         # Add log2 fold change columns if not present
         if self.log2_fold_change_col not in self.data.columns:
