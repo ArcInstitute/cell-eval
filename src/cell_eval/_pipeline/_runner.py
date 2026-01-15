@@ -215,7 +215,6 @@ class MetricPipeline:
     ) -> None:
         """Compute perturbation metrics."""
         for name in self._metrics:
-            print("name", name)
             if name not in metrics_registry.list_metrics(MetricType.ANNDATA_PAIR):
                 continue
             self._compute_metric(name, data)
