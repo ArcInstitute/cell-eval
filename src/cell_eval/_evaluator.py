@@ -89,7 +89,7 @@ class MetricsEvaluator:
             allow_discrete=allow_discrete,
         )
 
-        if True:
+        if skip_de:
             self.de_comparison = None
         else:
             self.de_comparison = _build_de_comparison(
@@ -107,8 +107,6 @@ class MetricsEvaluator:
 
         self.outdir = outdir
         self.prefix = prefix
-        # Store the requested number of threads for metrics usage
-        self.num_threads = num_threads
 
     def compute(
         self,
@@ -119,23 +117,16 @@ class MetricsEvaluator:
         write_csv: bool = True,
         break_on_error: bool = False,
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
-        # Merge provided configs with num_threads for top_k_accuracy only
-        merged_metric_configs: dict[str, dict[str, Any]] = {}
-        if metric_configs:
-            merged_metric_configs.update(metric_configs)
-
         pipeline = MetricPipeline(
             profile=profile,
-            metric_configs=merged_metric_configs,
+            metric_configs=metric_configs,
             break_on_error=break_on_error,
         )
-
         if skip_metrics is not None:
             pipeline.skip_metrics(skip_metrics)
         pipeline.compute_de_metrics(self.de_comparison)
         pipeline.compute_anndata_metrics(self.anndata_pair)
         results = pipeline.get_results()
-        print("results", results)
         agg_results = pipeline.get_agg_results()
 
         if write_csv:
@@ -198,7 +189,7 @@ def _convert_to_normlog(
 
     Will skip if the input is not integer data.
     """
-    if True: # TODO: francis fix
+    if guess_is_lognorm(adata=adata, validate=not allow_discrete):
         logger.info(
             "Input is found to be log-normalized already - skipping transformation."
         )
