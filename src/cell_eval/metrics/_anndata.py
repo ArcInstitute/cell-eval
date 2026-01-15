@@ -205,12 +205,10 @@ def top_k_accuracy(
 ) -> dict[str, float]:
     """
     Top-k accuracy over pseudo-bulked perturbation profiles.
-
     For each perturbation, we compute one vector for real and one for predicted
     (pseudobulk/mean per perturbation). We then compare each predicted
     perturbation vector against all real perturbation vectors and mark a hit if
     the correct real perturbation is within the top-k closest.
-
     Args:
         data: PerturbationAnndataPair
         k: number of nearest neighbors to consider per perturbation
@@ -257,7 +255,6 @@ def top_k_accuracy(
         scores[str(pert)] = 1.0 if i in idx else 0.0
 
     return scores
-
 
 def _generic_evaluation(
     data: PerturbationAnndataPair,
@@ -355,65 +352,4 @@ class ClusteringAgreement:
         if issparse(feats):
             feats = feats.toarray()  # type: ignore
 
-        cats = adata.obs[category_key].values
-        uniq, inv = np.unique(cats, return_inverse=True)  # type: ignore
-        centroids = np.zeros((uniq.size, feats.shape[1]), dtype=feats.dtype)  # type: ignore
-
-        for i, cat in enumerate(uniq):
-            mask = cats == cat
-            if np.any(mask):
-                centroids[i] = feats[mask].mean(axis=0)  # type: ignore
-
-        adc = ad.AnnData(X=centroids)
-        adc.obs[category_key] = uniq
-        return adc[adc.obs[category_key] != control_pert]
-
-    def __call__(self, data: PerturbationAnndataPair) -> float:
-        cats_sorted = sorted([c for c in data.perts if c != data.control_pert])
-
-        # 2. build centroids
-        ad_real_cent = self._centroid_ann(
-            adata=data.real,
-            category_key=data.pert_col,
-            control_pert=data.control_pert,
-            embed_key=self.embed_key,
-        )
-        ad_pred_cent = self._centroid_ann(
-            adata=data.pred,
-            category_key=data.pert_col,
-            control_pert=data.control_pert,
-            embed_key=self.embed_key,
-        )
-
-        # 3. cluster real once
-        real_key = "real_clusters"
-        self._cluster_leiden(
-            ad_real_cent, self.real_resolution, real_key, self.n_neighbors
-        )
-        # reorder rows to match cats_sorted without using DataFrame.set_index (type stubs issue)
-        idx_real = (
-            pd.Series(np.arange(ad_real_cent.n_obs),
-                      index=ad_real_cent.obs[data.pert_col].to_numpy())
-            .loc[cats_sorted]
-            .to_numpy()
-        )
-        ad_real_cent = ad_real_cent[idx_real]
-        real_labels = pd.Categorical(ad_real_cent.obs[real_key])
-
-        # 4. sweep predicted resolutions
-        best_score = 0.0
-        idx_pred = (
-            pd.Series(np.arange(ad_pred_cent.n_obs),
-                      index=ad_pred_cent.obs[data.pert_col].to_numpy())
-            .loc[cats_sorted]
-            .to_numpy()
-        )
-        ad_pred_cent = ad_pred_cent[idx_pred]
-        for r in self.pred_resolutions:
-            pred_key = f"pred_clusters_{r}"
-            self._cluster_leiden(ad_pred_cent, r, pred_key, self.n_neighbors)
-            pred_labels = pd.Categorical(ad_pred_cent.obs[pred_key])
-            score = self._score(real_labels, pred_labels, self.metric)  # type: ignore
-            best_score = max(best_score, score)
-
-        return float(best_score)
+        cats = ad
