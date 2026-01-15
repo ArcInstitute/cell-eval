@@ -129,8 +129,8 @@ class DESpearmanLFC:
             )
             .agg(
                 pl.corr(
-                    pl.col(data.real.fold_change_col),
-                    pl.col(f"{data.real.fold_change_col}_pred"),
+                    pl.col(data.real.fold_change_col).cast(pl.Float64),
+                    pl.col(f"{data.real.fold_change_col}_pred").cast(pl.Float64),
                     method="spearman",
                 ).alias("spearman_corr"),
             )
