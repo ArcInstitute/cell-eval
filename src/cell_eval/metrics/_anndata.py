@@ -352,4 +352,52 @@ class ClusteringAgreement:
         if issparse(feats):
             feats = feats.toarray()  # type: ignore
 
-        cats = ad
+        cats = adata.obs[category_key].values
+        uniq, inv = np.unique(cats, return_inverse=True)  # type: ignore
+        centroids = np.zeros((uniq.size, feats.shape[1]), dtype=feats.dtype)  # type: ignore
+
+        for i, cat in enumerate(uniq):
+            mask = cats == cat
+            if np.any(mask):
+                centroids[i] = feats[mask].mean(axis=0)  # type: ignore
+
+        adc = ad.AnnData(X=centroids)
+        adc.obs[category_key] = uniq
+        return adc[adc.obs[category_key] != control_pert]
+
+    def __call__(self, data: PerturbationAnndataPair) -> float:
+        cats_sorted = sorted([c for c in data.perts if c != data.control_pert])
+
+        # 2. build centroids
+        ad_real_cent = self._centroid_ann(
+            adata=data.real,
+            category_key=data.pert_col,
+            control_pert=data.control_pert,
+            embed_key=self.embed_key,
+        )
+        ad_pred_cent = self._centroid_ann(
+            adata=data.pred,
+            category_key=data.pert_col,
+            control_pert=data.control_pert,
+            embed_key=self.embed_key,
+        )
+
+        # 3. cluster real once
+        real_key = "real_clusters"
+        self._cluster_leiden(
+            ad_real_cent, self.real_resolution, real_key, self.n_neighbors
+        )
+        ad_real_cent.obs = ad_real_cent.obs.set_index(data.pert_col).loc[cats_sorted]
+        real_labels = pd.Categorical(ad_real_cent.obs[real_key])
+
+        # 4. sweep predicted resolutions
+        best_score = 0.0
+        ad_pred_cent.obs = ad_pred_cent.obs.set_index(data.pert_col).loc[cats_sorted]
+        for r in self.pred_resolutions:
+            pred_key = f"pred_clusters_{r}"
+            self._cluster_leiden(ad_pred_cent, r, pred_key, self.n_neighbors)
+            pred_labels = pd.Categorical(ad_pred_cent.obs[pred_key])
+            score = self._score(real_labels, pred_labels, self.metric)  # type: ignore
+            best_score = max(best_score, score)
+
+        return float(best_score)
