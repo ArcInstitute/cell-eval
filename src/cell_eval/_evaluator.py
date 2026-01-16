@@ -53,6 +53,8 @@ class MetricsEvaluator:
     pdex_kwargs: dict[str, Any] | None = None
         Keyword arguments for parallel_differential_expression.
         These will overwrite arguments passed to MetricsEvaluator.__init__ if they conflict.
+    fdr_threshold: float = 0.05
+        FDR threshold for DE significance used in DE metrics.
     """
 
     def __init__(
@@ -71,6 +73,7 @@ class MetricsEvaluator:
         prefix: str | None = None,
         pdex_kwargs: dict[str, Any] | None = None,
         skip_de: bool = False,
+        fdr_threshold: float = 0.05,
     ):
         # Enable a global string cache for categorical columns
         pl.enable_string_cache()
@@ -107,6 +110,7 @@ class MetricsEvaluator:
 
         self.outdir = outdir
         self.prefix = prefix
+        self.fdr_threshold = fdr_threshold
 
     def compute(
         self,
@@ -117,9 +121,13 @@ class MetricsEvaluator:
         write_csv: bool = True,
         break_on_error: bool = False,
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        # Inject fdr_threshold into DE metric configs
+        de_metric_configs = _build_de_metric_configs(self.fdr_threshold)
+        merged_configs = {**de_metric_configs, **(metric_configs or {})}
+
         pipeline = MetricPipeline(
             profile=profile,
-            metric_configs=metric_configs,
+            metric_configs=merged_configs,
             break_on_error=break_on_error,
         )
         if skip_metrics is not None:
@@ -154,6 +162,31 @@ class MetricsEvaluator:
             agg_results.write_csv(agg_outpath)
 
         return results, agg_results
+
+
+def _build_de_metric_configs(fdr_threshold: float) -> dict[str, dict[str, Any]]:
+    """Build metric configs with fdr_threshold for all DE metrics that accept it."""
+    de_metrics_with_fdr = [
+        "de_spearman_sig",
+        "de_direction_match",
+        "de_spearman_lfc_sig",
+        "de_sig_genes_recall",
+        "de_nsig_counts",
+        "pr_auc",
+        "roc_auc",
+        # overlap/precision metrics
+        "overlap_at_N",
+        "overlap_at_50",
+        "overlap_at_100",
+        "overlap_at_200",
+        "overlap_at_500",
+        "precision_at_N",
+        "precision_at_50",
+        "precision_at_100",
+        "precision_at_200",
+        "precision_at_500",
+    ]
+    return {metric: {"fdr_threshold": fdr_threshold} for metric in de_metrics_with_fdr}
 
 
 def _build_anndata_pair(

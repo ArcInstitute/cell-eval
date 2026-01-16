@@ -109,6 +109,12 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="Metrics to skip (comma-separated for multiple) (see docs for more details)",
     )
     parser.add_argument(
+        "--fdr-threshold",
+        type=float,
+        default=0.05,
+        help="FDR threshold for DE significance [default: %(default)s]",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s {version}".format(
@@ -141,6 +147,30 @@ def run_evaluation(args: ap.Namespace):
         if args.embed_key is not None
         else {}
     )
+
+    # Add fdr_threshold to all DE metrics that accept it
+    de_metrics_with_fdr = [
+        "de_spearman_sig",
+        "de_direction_match",
+        "de_spearman_lfc_sig",
+        "de_sig_genes_recall",
+        "de_nsig_counts",
+        "pr_auc",
+        "roc_auc",
+        # overlap/precision metrics
+        "overlap_at_N",
+        "overlap_at_50",
+        "overlap_at_100",
+        "overlap_at_200",
+        "overlap_at_500",
+        "precision_at_N",
+        "precision_at_50",
+        "precision_at_100",
+        "precision_at_200",
+        "precision_at_500",
+    ]
+    for metric_name in de_metrics_with_fdr:
+        metric_kwargs.setdefault(metric_name, {})["fdr_threshold"] = args.fdr_threshold
 
     skip_metrics = args.skip_metrics.split(",") if args.skip_metrics else None
 
