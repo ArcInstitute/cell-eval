@@ -280,6 +280,7 @@ def run_prep(args: ap.Namespace):
         else args.input.replace(".h5ad", ".prep.vcc"),
         pert_col=args.pert_col,
         celltype_col=args.celltype_col,
+        ntc_name=args.ntc_name,
         encoding=args.encoding,
         allow_discrete=args.allow_discrete,
         exp_gene_dim=args.expected_gene_dim if args.expected_gene_dim != -1 else None,
