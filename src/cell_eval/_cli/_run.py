@@ -109,6 +109,13 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="Metrics to skip (comma-separated for multiple) (see docs for more details)",
     )
     parser.add_argument(
+        "-k",
+        "--topk",
+        type=int,
+        default=10,
+        help="k for top_k_accuracy (number of nearest neighbors) [default: %(default)s]",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s {version}".format(
@@ -141,6 +148,9 @@ def run_evaluation(args: ap.Namespace):
         if args.embed_key is not None
         else {}
     )
+
+    # Always pass top-k for top_k_accuracy
+    metric_kwargs.setdefault("top_k_accuracy", {})["k"] = args.topk
 
     skip_metrics = args.skip_metrics.split(",") if args.skip_metrics else None
 
