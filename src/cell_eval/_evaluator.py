@@ -398,7 +398,9 @@ def _load_or_build_de(
         if pdex_kwargs:
             logger.warning("pdex_kwargs are ignored when reading from a CSV file")
         if fix_cells:
-            logger.warning("fix_cells is ignored when reading DE results from a CSV file")
+            logger.warning(
+                "fix_cells is ignored when reading DE results from a CSV file"
+            )
         return pl.read_csv(
             de_path,
             schema_overrides={

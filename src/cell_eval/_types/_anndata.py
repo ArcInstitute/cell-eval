@@ -175,10 +175,16 @@ class PerturbationAnndataPair:
         )
         return matrix * scale
 
-    def _rescaled_log1p_matrices(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    def _rescaled_log1p_matrices(
+        self,
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """Return real and pred matrices after row normalization in count space."""
-        matrix_real = np.asarray(self.real.X.toarray() if issparse(self.real.X) else self.real.X)  # type: ignore
-        matrix_pred = np.asarray(self.pred.X.toarray() if issparse(self.pred.X) else self.pred.X)  # type: ignore
+        matrix_real = np.asarray(
+            self.real.X.toarray() if issparse(self.real.X) else self.real.X
+        )  # type: ignore
+        matrix_pred = np.asarray(
+            self.pred.X.toarray() if issparse(self.pred.X) else self.pred.X
+        )  # type: ignore
 
         counts_real = np.expm1(matrix_real)
         counts_pred = np.expm1(matrix_pred)
