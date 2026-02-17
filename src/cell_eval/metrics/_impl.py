@@ -8,6 +8,7 @@ from ._anndata import (
     mse,
     mse_delta,
     pearson_delta,
+    pearson_delta_degs,
 )
 from ._de import (
     DEDirectionMatch,
@@ -29,6 +30,13 @@ metrics_registry.register(
     description="Pearson correlation between mean differences from control",
     best_value=MetricBestValue.ONE,
     func=pearson_delta,
+)
+metrics_registry.register(
+    name="pearson_delta_degs",
+    metric_type=MetricType.ANNDATA_PAIR,
+    description="Pearson correlation between mean differences from control over real-data DEGs",
+    best_value=MetricBestValue.ONE,
+    func=pearson_delta_degs,
 )
 
 metrics_registry.register(
@@ -70,6 +78,20 @@ for distance_metric in ["l1", "l2", "cosine"]:
         best_value=MetricBestValue.ONE,
         func=discrimination_score,
         kwargs={"metric": distance_metric},
+    )
+    metrics_registry.register(
+        name=f"rescaled_discrimination_score_{distance_metric}",
+        metric_type=MetricType.ANNDATA_PAIR,
+        description=(
+            "Determines similarity of each pred representation to real via normalized "
+            f"rank ({distance_metric}) after per-cell row-sum rescaling in count space"
+        ),
+        best_value=MetricBestValue.ONE,
+        func=discrimination_score,
+        kwargs={
+            "metric": distance_metric,
+            "normalize_rows_to_real_median": True,
+        },
     )
 
 metrics_registry.register(

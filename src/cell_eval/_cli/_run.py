@@ -86,6 +86,15 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="Batch size for parallel processing [default: %(default)s]",
     )
     parser.add_argument(
+        "--fix-cells",
+        type=int,
+        default=None,
+        help=(
+            "If set to a positive int, resample each perturbation condition to this "
+            "many cells before DE computation (0 or None disables)"
+        ),
+    )
+    parser.add_argument(
         "--de-method",
         type=str,
         default="wilcoxon",
@@ -173,6 +182,7 @@ def run_evaluation(args: ap.Namespace):
                 allow_discrete=args.allow_discrete,
                 prefix=ct,
                 skip_de=args.profile == "pds",
+                fix_cells=args.fix_cells,
             )
             evaluator.compute(
                 profile=args.profile,
@@ -195,6 +205,7 @@ def run_evaluation(args: ap.Namespace):
             outdir=args.outdir,
             allow_discrete=args.allow_discrete,
             skip_de=args.profile == "pds",
+            fix_cells=args.fix_cells,
         )
         evaluator.compute(
             profile=args.profile,

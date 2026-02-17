@@ -16,7 +16,7 @@ from sklearn.metrics import (
     normalized_mutual_info_score,
 )
 
-from .._types import PerturbationAnndataPair
+from .._types import DESortBy, PerturbationAnndataPair
 
 logger = getLogger(__name__)
 
@@ -31,6 +31,50 @@ def pearson_delta(
         use_delta=True,
         embed_key=embed_key,
     )
+
+
+def pearson_delta_degs(
+    data: PerturbationAnndataPair,
+    fdr_threshold: float = 0.05,
+    sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
+    k: int | None = None,
+) -> dict[str, float]:
+    """Compute Pearson correlation between perturbation deltas on real-data DEGs only.
+
+    DEG selection follows the same pathway used by overlap metrics:
+    `DEComparison.real.get_top_genes(sort_by, fdr_threshold)`.
+    """
+    if data.de_comparison is None:
+        raise ValueError(
+            "pearson_delta_degs requires DE results. Ensure DE was computed and attached."
+        )
+
+    real_rank_matrix = data.de_comparison.real.get_top_genes(
+        sort_by=sort_by,
+        fdr_threshold=fdr_threshold,
+    )
+    gene_to_idx = {str(gene): idx for idx, gene in enumerate(data.genes)}
+
+    results: dict[str, float] = {}
+    for bulk in data.iter_bulk_arrays(embed_key=None):
+        if bulk.key not in real_rank_matrix.columns:
+            results[bulk.key] = float("nan")
+            continue
+
+        deg_genes = real_rank_matrix[bulk.key].drop_nulls().to_numpy()
+        if k is not None:
+            deg_genes = deg_genes[: min(k, deg_genes.size)]
+
+        idx = [gene_to_idx[str(gene)] for gene in deg_genes if str(gene) in gene_to_idx]
+        if len(idx) < 2:
+            results[bulk.key] = float("nan")
+            continue
+
+        pred_delta = bulk.perturbation_effect(which="pred", abs=False)[idx]
+        real_delta = bulk.perturbation_effect(which="real", abs=False)[idx]
+        results[bulk.key] = float(pearsonr(pred_delta, real_delta)[0])
+
+    return results
 
 
 def mse(
@@ -131,6 +175,7 @@ def discrimination_score(
     metric: str = "l1",
     embed_key: str | None = None,
     exclude_target_gene: bool = True,
+    normalize_rows_to_real_median: bool = False,
 ) -> dict[str, float]:
     """Base implementation for discrimination score computation.
 
@@ -141,10 +186,16 @@ def discrimination_score(
         embed_key: Key for embedding data in obsm, None for expression data
         metric: Metric for distance calculation (e.g., "l1", "l2", see `scipy.metrics.pairwise.distance_metrics`)
         exclude_target_gene: Whether to exclude target gene from calculation
+        normalize_rows_to_real_median: Whether to rescale each cell to the median
+            real-cell row sum in count space (expm1/log1p transform) before pseudobulking.
 
     Returns:
         Dictionary mapping perturbation names to normalized ranks
     """
+    if normalize_rows_to_real_median:
+        # Rescaled discrimination is defined only on .X
+        embed_key = None
+
     if metric == "l1" or metric == "manhattan" or metric == "cityblock":
         # Ignore the embedding key for L1
         embed_key = None
@@ -153,13 +204,19 @@ def discrimination_score(
     real_effects = np.vstack(
         [
             d.perturbation_effect(which="real", abs=False)
-            for d in data.iter_bulk_arrays(embed_key=embed_key)
+            for d in data.iter_bulk_arrays(
+                embed_key=embed_key,
+                normalize_rows_to_real_median=normalize_rows_to_real_median,
+            )
         ]
     )
     pred_effects = np.vstack(
         [
             d.perturbation_effect(which="pred", abs=False)
-            for d in data.iter_bulk_arrays(embed_key=embed_key)
+            for d in data.iter_bulk_arrays(
+                embed_key=embed_key,
+                normalize_rows_to_real_median=normalize_rows_to_real_median,
+            )
         ]
     )
 

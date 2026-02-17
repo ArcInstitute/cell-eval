@@ -53,6 +53,9 @@ class DEResults:
     pvalue_col: str = "p_value"
     fdr_col: str = "fdr"
     name: str = "de"
+    _top_genes_cache: dict[tuple[DESortBy, float], pl.DataFrame] = field(
+        init=False, default_factory=dict, repr=False
+    )
 
     def __post_init__(self) -> None:
         required_cols = {
@@ -152,6 +155,9 @@ class DEResults:
         """Get top genes per perturbation, optionally filtered by FDR."""
         # Set FDR threshold if not provided
         fdr_threshold = fdr_threshold if fdr_threshold is not None else 0.05
+        cache_key = (sort_by, float(fdr_threshold))
+        if cache_key in self._top_genes_cache:
+            return self._top_genes_cache[cache_key]
 
         descending = sort_by in {DESortBy.FOLD_CHANGE, DESortBy.ABS_FOLD_CHANGE}
 
@@ -180,6 +186,7 @@ class DEResults:
                 [pl.lit(None).alias(p) for p in missing_perts]
             )
 
+        self._top_genes_cache[cache_key] = rank_matrix
         return rank_matrix
 
 

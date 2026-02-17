@@ -4,6 +4,7 @@ import os
 from typing import Any, Literal
 
 import anndata as ad
+import numpy as np
 import pandas as pd
 import polars as pl
 import scanpy as sc
@@ -53,6 +54,10 @@ class MetricsEvaluator:
     pdex_kwargs: dict[str, Any] | None = None
         Keyword arguments for parallel_differential_expression.
         These will overwrite arguments passed to MetricsEvaluator.__init__ if they conflict.
+    fix_cells: int | None = None
+        If set to a positive integer, resample each perturbation condition to exactly
+        this many cells (downsample without replacement, upsample with replacement)
+        before DE computation.
     """
 
     def __init__(
@@ -71,6 +76,7 @@ class MetricsEvaluator:
         prefix: str | None = None,
         pdex_kwargs: dict[str, Any] | None = None,
         skip_de: bool = False,
+        fix_cells: int | None = None,
     ):
         # Enable a global string cache for categorical columns
         pl.enable_string_cache()
@@ -80,6 +86,9 @@ class MetricsEvaluator:
                 f"Output directory {outdir} already exists, potential overwrite occurring"
             )
         os.makedirs(outdir, exist_ok=True)
+
+        if fix_cells is not None and fix_cells < 0:
+            raise ValueError("fix_cells must be >= 0 or None")
 
         self.anndata_pair = _build_anndata_pair(
             real=adata_real,
@@ -103,7 +112,9 @@ class MetricsEvaluator:
                 outdir=outdir,
                 prefix=prefix,
                 pdex_kwargs=pdex_kwargs or {},
+                fix_cells=fix_cells,
             )
+        self.anndata_pair.attach_de_comparison(self.de_comparison)
 
         self.outdir = outdir
         self.prefix = prefix
@@ -227,6 +238,7 @@ def _build_de_comparison(
     outdir: str | None = None,
     prefix: str | None = None,
     pdex_kwargs: dict[str, Any] | None = None,
+    fix_cells: int | None = None,
 ):
     return initialize_de_comparison(
         real=_load_or_build_de(
@@ -240,6 +252,7 @@ def _build_de_comparison(
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
+            fix_cells=fix_cells,
         ),
         pred=_load_or_build_de(
             mode="pred",
@@ -252,6 +265,7 @@ def _build_de_comparison(
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
+            fix_cells=fix_cells,
         ),
     )
 
@@ -287,6 +301,50 @@ def _build_pdex_kwargs(
     return pdex_kwargs
 
 
+def _resample_adata_to_fixed_cells_per_condition(
+    adata: ad.AnnData,
+    pert_col: str,
+    fix_cells: int | None = None,
+    random_seed: int = 0,
+) -> ad.AnnData:
+    """Resample each perturbation condition to a fixed number of cells."""
+    if fix_cells is None or fix_cells == 0:
+        return adata
+    if fix_cells < 0:
+        raise ValueError("fix_cells must be >= 0 or None")
+    if pert_col not in adata.obs.columns:
+        raise ValueError(f"Perturbation column '{pert_col}' not found in AnnData.obs")
+
+    rng = np.random.default_rng(random_seed)
+    perts = adata.obs[pert_col].to_numpy(str)
+    unique_perts = np.unique(perts)
+
+    sampled_indices: list[np.ndarray] = []
+    n_downsampled = 0
+    n_upsampled = 0
+    for pert in unique_perts:
+        idx = np.flatnonzero(perts == pert)
+        if idx.size > fix_cells:
+            chosen = rng.choice(idx, size=fix_cells, replace=False)
+            n_downsampled += 1
+        elif idx.size < fix_cells:
+            chosen = rng.choice(idx, size=fix_cells, replace=True)
+            n_upsampled += 1
+        else:
+            chosen = idx
+        sampled_indices.append(np.asarray(chosen, dtype=np.int64))
+
+    selected = np.concatenate(sampled_indices)
+    logger.info(
+        "Applied fix_cells=%d on %d conditions (%d downsampled, %d upsampled)",
+        fix_cells,
+        unique_perts.size,
+        n_downsampled,
+        n_upsampled,
+    )
+    return adata[selected, :].copy()
+
+
 def _load_or_build_de(
     mode: Literal["pred", "real"],
     de_path: pl.DataFrame | str | None = None,
@@ -298,6 +356,7 @@ def _load_or_build_de(
     prefix: str | None = None,
     allow_discrete: bool = False,
     pdex_kwargs: dict[str, Any] | None = None,
+    fix_cells: int | None = None,
 ) -> pl.DataFrame:
     if de_path is None:
         if anndata_pair is None:
@@ -313,8 +372,15 @@ def _load_or_build_de(
             pdex_kwargs=pdex_kwargs or {},
         )
         logger.info(f"Using the following pdex kwargs: {pdex_kwargs}")
+        adata = anndata_pair.real if mode == "real" else anndata_pair.pred
+        adata = _resample_adata_to_fixed_cells_per_condition(
+            adata=adata,
+            pert_col=anndata_pair.pert_col,
+            fix_cells=fix_cells,
+            random_seed=0 if mode == "real" else 1,
+        )
         frame = parallel_differential_expression(
-            adata=anndata_pair.real if mode == "real" else anndata_pair.pred,
+            adata=adata,
             **pdex_kwargs,
         )
         if outdir is not None:
@@ -331,6 +397,8 @@ def _load_or_build_de(
         logger.info(f"Reading {mode} DE results from {de_path}")
         if pdex_kwargs:
             logger.warning("pdex_kwargs are ignored when reading from a CSV file")
+        if fix_cells:
+            logger.warning("fix_cells is ignored when reading DE results from a CSV file")
         return pl.read_csv(
             de_path,
             schema_overrides={
@@ -341,10 +409,18 @@ def _load_or_build_de(
     elif isinstance(de_path, pl.DataFrame):
         if pdex_kwargs:
             logger.warning("pdex_kwargs are ignored when reading from a CSV file")
+        if fix_cells:
+            logger.warning(
+                "fix_cells is ignored when DE results are provided as a DataFrame"
+            )
         return de_path
     elif isinstance(de_path, pd.DataFrame):
         if pdex_kwargs:
             logger.warning("pdex_kwargs are ignored when reading from a CSV file")
+        if fix_cells:
+            logger.warning(
+                "fix_cells is ignored when DE results are provided as a DataFrame"
+            )
         return pl.from_pandas(de_path)
     else:
         raise TypeError(f"Unexpected type for de_path: {type(de_path)}")

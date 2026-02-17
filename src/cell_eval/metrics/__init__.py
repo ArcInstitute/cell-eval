@@ -8,6 +8,7 @@ from ._anndata import (
     mse,
     mse_delta,
     pearson_delta,
+    pearson_delta_degs,
 )
 from ._de import (
     DEDirectionMatch,
@@ -26,6 +27,7 @@ __all__ = [
     # Array metrics
     "ClusteringAgreement",
     "pearson_delta",
+    "pearson_delta_degs",
     "mse",
     "mae",
     "mse_delta",
