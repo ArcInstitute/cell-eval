@@ -2,8 +2,15 @@
 
 from typing import Literal
 
+import numpy as np
 import polars as pl
-from sklearn.metrics import auc, average_precision_score, roc_curve
+from numpy.typing import NDArray
+from sklearn.metrics import (
+    auc,
+    average_precision_score,
+    precision_recall_curve,
+    roc_curve,
+)
 
 from .._types import DEComparison, DESortBy
 
@@ -207,6 +214,74 @@ def compute_pr_auc(data: DEComparison) -> dict[str, float]:
 def compute_roc_auc(data: DEComparison) -> dict[str, float]:
     """Compute ROC AUC per perturbation for significant recovery."""
     return compute_generic_auc(data, method="roc")
+
+
+def compute_pr_curve(
+    data: DEComparison,
+) -> dict[str, dict[str, NDArray[np.float64]]]:
+    """Compute precision-recall curve arrays per perturbation.
+
+    Returns a dictionary keyed by perturbation, where each value contains:
+      - precision: precision values from sklearn.metrics.precision_recall_curve
+      - recall: recall values from sklearn.metrics.precision_recall_curve
+      - thresholds: threshold values from sklearn.metrics.precision_recall_curve
+
+    Perturbations that are not evaluable under the same constraints used by
+    ``compute_pr_auc`` (no rows or only one class in labels) are returned with
+    empty arrays for all three fields.
+    """
+    target_col = data.real.target_col
+    feature_col = data.real.feature_col
+    real_fdr_col = data.real.fdr_col
+    pred_fdr_col = data.pred.fdr_col
+
+    labeled_real = data.real.data.with_columns(
+        (pl.col(real_fdr_col) < 0.05).cast(pl.Float32).alias("label")
+    ).select([target_col, feature_col, "label"])
+
+    merged = (
+        data.pred.data.select([target_col, feature_col, pred_fdr_col])
+        .join(
+            labeled_real,
+            on=[target_col, feature_col],
+            how="inner",
+            coalesce=True,
+        )
+        .drop_nulls(["label"])
+        .with_columns((-pl.col(pred_fdr_col).replace(0, 1e-10).log10()).alias("nlp"))
+        .drop_nulls(["nlp"])
+    )
+
+    empty = np.array([], dtype=np.float64)
+    curves: dict[str, dict[str, NDArray[np.float64]]] = {}
+    for pert in data.iter_perturbations():
+        pert_data = merged.filter(pl.col(target_col) == pert)
+        if pert_data.shape[0] == 0:
+            curves[pert] = {
+                "precision": empty.copy(),
+                "recall": empty.copy(),
+                "thresholds": empty.copy(),
+            }
+            continue
+
+        labels = pert_data["label"].to_numpy()
+        scores = pert_data["nlp"].to_numpy()
+        if not (0 < labels.sum() < len(labels)):
+            curves[pert] = {
+                "precision": empty.copy(),
+                "recall": empty.copy(),
+                "thresholds": empty.copy(),
+            }
+            continue
+
+        precision, recall, thresholds = precision_recall_curve(labels, scores)
+        curves[pert] = {
+            "precision": precision,
+            "recall": recall,
+            "thresholds": thresholds,
+        }
+
+    return curves
 
 
 def compute_generic_auc(

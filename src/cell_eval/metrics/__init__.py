@@ -17,6 +17,7 @@ from ._de import (
     DESpearmanLFC,
     DESpearmanSignificant,
     compute_pr_auc,
+    compute_pr_curve,
     compute_roc_auc,
     de_overlap_metric,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "de_overlap_metric",
     "DESpearmanLFC",
     "compute_pr_auc",
+    "compute_pr_curve",
     "compute_roc_auc",
     "DESigGenesRecall",
     "DENsigCounts",

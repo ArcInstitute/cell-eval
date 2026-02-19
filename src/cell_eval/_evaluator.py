@@ -14,6 +14,7 @@ from cell_eval.utils import guess_is_lognorm
 
 from ._pipeline import MetricPipeline
 from ._types import PerturbationAnndataPair, initialize_de_comparison
+from .metrics import compute_pr_curve
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,62 @@ class MetricsEvaluator:
             logger.info(f"Writing aggregate metrics to {agg_outpath}")
             agg_results.write_csv(agg_outpath)
 
+            if self.de_comparison is not None and "pr_auc" in results.columns:
+                self._write_pr_curve_npy(
+                    basename=basename,
+                )
+
         return results, agg_results
+
+    def _write_pr_curve_npy(self, basename: str) -> None:
+        """Write precision-recall curve arrays as .npy sidecars."""
+        if self.de_comparison is None:
+            return
+
+        basename_stem = os.path.splitext(basename)[0]
+        base_filename = (
+            f"{self.prefix}_{basename_stem}" if self.prefix else basename_stem
+        )
+        perts_outpath = os.path.join(
+            self.outdir,
+            f"{base_filename}_pr_curve_perturbations.npy",
+        )
+        precision_outpath = os.path.join(
+            self.outdir,
+            f"{base_filename}_pr_curve_precision.npy",
+        )
+        recall_outpath = os.path.join(
+            self.outdir,
+            f"{base_filename}_pr_curve_recall.npy",
+        )
+        thresholds_outpath = os.path.join(
+            self.outdir,
+            f"{base_filename}_pr_curve_thresholds.npy",
+        )
+
+        pr_curves = compute_pr_curve(self.de_comparison)
+        perturbations = list(pr_curves.keys())
+        precision = np.array(
+            [pr_curves[pert]["precision"] for pert in perturbations],
+            dtype=object,
+        )
+        recall = np.array(
+            [pr_curves[pert]["recall"] for pert in perturbations],
+            dtype=object,
+        )
+        thresholds = np.array(
+            [pr_curves[pert]["thresholds"] for pert in perturbations],
+            dtype=object,
+        )
+
+        logger.info(f"Writing PR-curve perturbations to {perts_outpath}")
+        np.save(perts_outpath, np.array(perturbations, dtype=np.str_))
+        logger.info(f"Writing PR-curve precision arrays to {precision_outpath}")
+        np.save(precision_outpath, precision, allow_pickle=True)
+        logger.info(f"Writing PR-curve recall arrays to {recall_outpath}")
+        np.save(recall_outpath, recall, allow_pickle=True)
+        logger.info(f"Writing PR-curve thresholds arrays to {thresholds_outpath}")
+        np.save(thresholds_outpath, thresholds, allow_pickle=True)
 
 
 def _build_anndata_pair(
