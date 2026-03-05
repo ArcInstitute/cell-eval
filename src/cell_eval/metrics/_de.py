@@ -116,11 +116,15 @@ class DESpearmanLFC:
         """Compute correlation between log fold changes of significant genes."""
         correlations = {}
 
-        merged = data.real.filter_to_significant(fdr_threshold=self.fdr_threshold).join(
-            data.pred.data,
-            on=[data.real.target_col, data.real.feature_col],
-            suffix="_pred",
-            how="inner",
+        merged = (
+            data.real.filter_to_significant(fdr_threshold=self.fdr_threshold)
+            .join(
+                data.pred.data,
+                on=[data.real.target_col, data.real.feature_col],
+                suffix="_pred",
+                how="left",
+            )
+            .with_columns(pl.col(f"{data.real.fold_change_col}_pred").fill_null(0.0))
         )
 
         for row in (
@@ -224,17 +228,19 @@ def compute_generic_auc(
         (pl.col(real_fdr_col) < 0.05).cast(pl.Float32).alias("label")
     ).select([target_col, feature_col, "label"])
 
+    pred_q = pl.col(pred_fdr_col).fill_null(1.0).clip(1e-10, 1.0)
     merged = (
-        data.pred.data.select([target_col, feature_col, pred_fdr_col])
-        .join(
-            labeled_real,
+        labeled_real.join(
+            data.pred.data.select([target_col, feature_col, pred_fdr_col]),
             on=[target_col, feature_col],
-            how="inner",
+            how="left",
             coalesce=True,
         )
         .drop_nulls(["label"])
-        .with_columns((-pl.col(pred_fdr_col).replace(0, 1e-10).log10()).alias("nlp"))
-        .drop_nulls(["nlp"])
+        .with_columns(
+            pred_q.alias(pred_fdr_col),
+            (-pred_q.log10()).alias("nlp"),
+        )
     )
 
     results: dict[str, float] = {}
