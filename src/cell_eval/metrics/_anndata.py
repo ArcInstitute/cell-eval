@@ -20,6 +20,65 @@ from .._types import PerturbationAnndataPair
 
 logger = getLogger(__name__)
 
+# ── GPU-accelerated pairwise distances ──────────────────────────────────────────
+
+_TORCH_AVAILABLE = False
+_TORCH_DEVICE = None
+
+try:
+    import torch
+
+    if torch.cuda.is_available():
+        _TORCH_AVAILABLE = True
+        _TORCH_DEVICE = torch.device("cuda")
+        logger.info("cell-eval: GPU acceleration enabled for pairwise distances")
+    elif torch.backends.mps.is_available():
+        _TORCH_AVAILABLE = True
+        _TORCH_DEVICE = torch.device("mps")
+        logger.info("cell-eval: MPS acceleration enabled for pairwise distances")
+except ImportError:
+    pass
+
+# sklearn metric name → torch.cdist p-norm
+_METRIC_TO_P: dict[str, float] = {
+    "euclidean": 2.0,
+    "l2": 2.0,
+    "l1": 1.0,
+    "manhattan": 1.0,
+    "cityblock": 1.0,
+}
+
+
+def pairwise_distances(
+    X: np.ndarray,
+    Y: np.ndarray | None = None,
+    metric: str = "euclidean",
+    **kwargs,
+) -> np.ndarray:
+    """Drop-in replacement for sklearn.metrics.pairwise_distances with GPU support.
+
+    Uses torch.cdist on GPU when available and the metric is supported,
+    otherwise falls back to sklearn.
+    """
+    if _TORCH_AVAILABLE and metric in _METRIC_TO_P and not kwargs:
+        p = _METRIC_TO_P[metric]
+        tx = torch.as_tensor(X, dtype=torch.float32, device=_TORCH_DEVICE)
+        ty = tx if Y is None else torch.as_tensor(Y, dtype=torch.float32, device=_TORCH_DEVICE)
+        result = torch.cdist(tx, ty, p=p).cpu().numpy()
+        return result
+
+    if metric == "cosine" and _TORCH_AVAILABLE and not kwargs:
+        tx = torch.as_tensor(X, dtype=torch.float32, device=_TORCH_DEVICE)
+        ty = tx if Y is None else torch.as_tensor(Y, dtype=torch.float32, device=_TORCH_DEVICE)
+        # cosine distance = 1 - cosine_similarity
+        tx_norm = tx / tx.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        ty_norm = ty / ty.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        sim = torch.mm(tx_norm, ty_norm.T)
+        result = (1.0 - sim).clamp(min=0.0).cpu().numpy()
+        return result
+
+    return skm.pairwise_distances(X, Y, metric=metric, **kwargs)
+
 
 def pearson_delta(
     data: PerturbationAnndataPair, embed_key: str | None = None
@@ -84,13 +143,13 @@ def edistance(
         precomp_sigma_y: float | None = None,
         **kwargs,
     ) -> float:
-        sigma_x = skm.pairwise_distances(x, metric=metric, **kwargs).mean()
+        sigma_x = pairwise_distances(x, metric=metric, **kwargs).mean()
         sigma_y = (
             precomp_sigma_y
             if precomp_sigma_y is not None
-            else skm.pairwise_distances(y, metric=metric, **kwargs).mean()
+            else pairwise_distances(y, metric=metric, **kwargs).mean()
         )
-        delta = skm.pairwise_distances(x, y, metric=metric, **kwargs).mean()
+        delta = pairwise_distances(x, y, metric=metric, **kwargs).mean()
         return 2 * delta - sigma_x - sigma_y
 
     d_real = np.zeros(data.perts.size)
@@ -98,12 +157,12 @@ def edistance(
 
     # Precompute sigma for control data (reused by all perturbations)
     logger.info("Precomputing sigma for control data (real)")
-    precomp_sigma_real = skm.pairwise_distances(
+    precomp_sigma_real = pairwise_distances(
         data.ctrl_matrix(which="real", embed_key=embed_key), metric=metric, **kwargs
     ).mean()
 
     logger.info("Precomputing sigma for control data (pred)")
-    precomp_sigma_pred = skm.pairwise_distances(
+    precomp_sigma_pred = pairwise_distances(
         data.ctrl_matrix(which="pred", embed_key=embed_key), metric=metric, **kwargs
     ).mean()
 
@@ -174,7 +233,7 @@ def discrimination_score(
             include_mask = np.ones(real_effects.shape[1], dtype=bool)
 
         # Compute distances to all real effects
-        distances = skm.pairwise_distances(
+        distances = pairwise_distances(
             real_effects[
                 :, include_mask
             ],  # compare to all real effects across perturbations
