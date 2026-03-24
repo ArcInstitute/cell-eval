@@ -1,7 +1,10 @@
 import logging
+from typing import cast
 
 import anndata as ad
 import numpy as np
+import pandas as pd
+import scipy.sparse as sp
 from scipy.sparse import csc_matrix, csr_matrix
 
 logger = logging.getLogger(__name__)
@@ -37,8 +40,8 @@ def guess_is_lognorm(
     # Check for fractional values
     if isinstance(adata.X, csr_matrix) or isinstance(adata.X, csc_matrix):
         frac, _ = np.modf(adata.X.data)
-    elif adata.isview:
-        frac, _ = np.modf(adata.X.toarray())
+    elif adata.is_view:
+        frac, _ = np.modf(adata.X.toarray())  # type: ignore[unresolved-attribute]
     elif adata.X is None:
         raise ValueError("adata.X is None")
     else:
@@ -57,8 +60,8 @@ def guess_is_lognorm(
         max_val = adata.X.max()
         min_val = adata.X.min()
     else:
-        max_val = float(np.max(adata.X))
-        min_val = float(np.min(adata.X))
+        max_val = float(np.max(adata.X))  # type: ignore[no-matching-overload]
+        min_val = float(np.min(adata.X))  # type: ignore[no-matching-overload]
 
     # Validate range
     if min_val < 0:
@@ -103,5 +106,23 @@ def split_anndata_on_celltype(
 
     return {
         ct: adata[adata.obs[celltype_col] == ct]
-        for ct in adata.obs[celltype_col].unique()
+        for ct in cast(pd.Series, adata.obs[celltype_col]).unique()
     }
+
+
+def _cast_float16_to_float32(adata: ad.AnnData, which: str | None = None):
+    """Cast float16 expression matrix to float32 (inplace).
+
+    NUMBA (used by pdex) does not support float16 operations.
+    """
+
+    x = cast(np.ndarray | csr_matrix | csc_matrix, adata.X)
+    dtype = (
+        x.dtype if not sp.issparse(x) else cast(csr_matrix | csc_matrix, x).data.dtype
+    )
+    if dtype == np.float16:
+        if which:
+            logger.info(
+                f"Casting {which} anndata from float16 to float32 (NUMBA does not support float16)."
+            )
+        adata.X = x.astype(np.float32)

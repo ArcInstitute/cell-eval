@@ -1,6 +1,6 @@
 [project]
 name = "cell-eval"
-version = "0.6.8"
+version = "0.7.0"
 description = "Evaluation metrics for single-cell perturbation predictions"
 readme = "README.md"
 authors = [
@@ -8,15 +8,16 @@ authors = [
     { name = "Abhinav Adduri", email = "abhinav.adduri@arcinstitute.org" },
     { name = "Yusuf Roohani", email = "yusuf.roohani@arcinstitute.org" },
 ]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11"
 dependencies = [
     "igraph>=0.11.8",
-    "pdex>=0.1.26",
+    "pdex>=0.2.0",
     "polars>=1.30.0",
     "pyyaml>=6.0.2",
     "scanpy>=1.10.3",
     "pyarrow>=18.0.0",
     "tqdm>=4.67.1",
+    "anndata>=0.12.10",
 ]
 
 [build-system]
@@ -24,11 +25,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = ["ipykernel>=6.29.5", "pytest>=8.3.5", "ruff>=0.11.8"]
+dev = [
+    "ipykernel>=6.29.5",
+    "pytest>=8.3.5",
+    "ruff>=0.11.8",
+    "ty>=0.0.19",
+]
 
 [project.scripts]
 cell-eval = "cell_eval.__main__:main"
-
-[tool.pyright]
-venvPath = "."
-venv = ".venv"

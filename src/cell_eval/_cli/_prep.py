@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
+from typing import cast
 
 import anndata as ad
 import numpy as np
@@ -136,9 +137,9 @@ def strip_anndata(
             raise ValueError(
                 f"Provided celltype column: '{celltype_col}' missing from anndata: {adata.obs.columns}"
             )
-    if ntc_name not in adata.obs[pert_col].unique():
+    if ntc_name not in cast(pd.Series, adata.obs[pert_col]).unique():
         raise ValueError(
-            f"Provided negative control name: '{ntc_name}' missing from anndata: {adata.obs[pert_col].unique()}"
+            f"Provided negative control name: '{ntc_name}' missing from anndata: {cast(pd.Series, adata.obs[pert_col]).unique()}"
         )
 
     # Check if expected dimension is provided and matches the length of the genelist
@@ -196,11 +197,11 @@ def strip_anndata(
 
     logger.info("Simplifying obs dataframe")
     new_obs = pd.DataFrame(
-        {output_pert_col: adata.obs[pert_col].values},
+        {output_pert_col: cast(pd.Series, adata.obs[pert_col]).values},
         index=np.arange(adata.shape[0]).astype(str),
     )
     if celltype_col:
-        new_obs[output_celltype_col] = adata.obs[celltype_col].values
+        new_obs[output_celltype_col] = cast(pd.Series, adata.obs[celltype_col]).values
 
     logger.info("Simplifying var dataframe")
     new_var = pd.DataFrame(
@@ -225,7 +226,7 @@ def strip_anndata(
 
         # Write the h5ad file
         logger.info(f"Writing h5ad output to {tmp_h5ad}")
-        minimal.write_h5ad(tmp_h5ad)
+        minimal.write_h5ad(tmp_h5ad)  # type: ignore[invalid-argument-type]
 
         # Zstd compress the h5ad file (will create pred.h5ad.zst)
         logger.info(f"Zstd compressing {tmp_h5ad}")

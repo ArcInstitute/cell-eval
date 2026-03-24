@@ -80,18 +80,6 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="Number of threads to use for parallel processing [default: %(default)s]",
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=100,
-        help="Batch size for parallel processing [default: %(default)s]",
-    )
-    parser.add_argument(
-        "--de-method",
-        type=str,
-        default="wilcoxon",
-        help="Method to use for differential expression analysis [default: %(default)s]",
-    )
-    parser.add_argument(
         "--allow-discrete",
         action="store_true",
         help="Allow discrete data to be evaluated (usually expected to be norm-logged inputs)",
@@ -166,9 +154,7 @@ def run_evaluation(args: ap.Namespace):
                 de_real=args.de_real,
                 control_pert=args.control_pert,
                 pert_col=args.pert_col,
-                de_method=args.de_method,
                 num_threads=args.num_threads,
-                batch_size=args.batch_size,
                 outdir=args.outdir,
                 allow_discrete=args.allow_discrete,
                 prefix=ct,
@@ -189,9 +175,7 @@ def run_evaluation(args: ap.Namespace):
             de_real=args.de_real,
             control_pert=args.control_pert,
             pert_col=args.pert_col,
-            de_method=args.de_method,
             num_threads=args.num_threads,
-            batch_size=args.batch_size,
             outdir=args.outdir,
             allow_discrete=args.allow_discrete,
             skip_de=args.profile == "pds",

@@ -1,9 +1,10 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Iterator, Literal
+from typing import Iterator, Literal, cast
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import polars as pl
 from numpy.typing import NDArray
 from scipy.sparse import issparse
@@ -70,8 +71,12 @@ class PerturbationAnndataPair:
                 f"Perturbation column ({self.pert_col}) not found in pred AnnData: {self.pred.obs.columns}"
             )
 
-        perts_real = np.unique(self.real.obs[self.pert_col].to_numpy(str))
-        perts_pred = np.unique(self.pred.obs[self.pert_col].to_numpy(str))
+        perts_real = np.unique(
+            cast(pd.Series, self.real.obs[self.pert_col]).to_numpy(str)
+        )
+        perts_pred = np.unique(
+            cast(pd.Series, self.pred.obs[self.pert_col]).to_numpy(str)
+        )
         if not np.array_equal(perts_real, perts_pred):
             raise ValueError(
                 f"Perturbation mismatch: real {perts_real} != pred {perts_pred}"
@@ -90,10 +95,10 @@ class PerturbationAnndataPair:
         perts = np.array([p for p in perts if p != self.control_pert])
 
         pert_mask_real = self.pert_mask(
-            self.real.obs[self.pert_col].to_numpy(str),
+            cast(pd.Series, self.real.obs[self.pert_col]).to_numpy(str),
         )
         pert_mask_pred = self.pert_mask(
-            self.pred.obs[self.pert_col].to_numpy(str),
+            cast(pd.Series, self.pred.obs[self.pert_col]).to_numpy(str),
         )
 
         object.__setattr__(self, "perts", perts)

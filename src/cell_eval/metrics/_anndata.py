@@ -1,7 +1,7 @@
 """Array metrics module."""
 
 from logging import getLogger
-from typing import Callable, Literal, Sequence
+from typing import Callable, Literal, Sequence, cast
 
 import anndata as ad
 import numpy as np
@@ -27,7 +27,7 @@ def pearson_delta(
     """Compute Pearson correlation between mean differences from control."""
     return _generic_evaluation(
         data,
-        pearsonr,  # type: ignore
+        pearsonr,
         use_delta=True,
         embed_key=embed_key,
     )
@@ -287,21 +287,21 @@ class ClusteringAgreement:
         feats = adata.obsm.get(embed_key, adata.X)  # type: ignore
 
         # Convert to float if not already
-        if feats.dtype != np.dtype("float64"):  # type: ignore
-            feats = feats.astype(np.float64)  # type: ignore
+        if feats.dtype != np.dtype("float64"):
+            feats = feats.astype(np.float64)
 
         # Densify if required
         if issparse(feats):
-            feats = feats.toarray()  # type: ignore
+            feats = feats.toarray()
 
-        cats = adata.obs[category_key].values
-        uniq, inv = np.unique(cats, return_inverse=True)  # type: ignore
-        centroids = np.zeros((uniq.size, feats.shape[1]), dtype=feats.dtype)  # type: ignore
+        cats = cast(pd.Series, adata.obs[category_key]).values
+        uniq, inv = np.unique(cats, return_inverse=True)
+        centroids = np.zeros((uniq.size, feats.shape[1]), dtype=feats.dtype)
 
         for i, cat in enumerate(uniq):
             mask = cats == cat
             if np.any(mask):
-                centroids[i] = feats[mask].mean(axis=0)  # type: ignore
+                centroids[i] = feats[mask].mean(axis=0)
 
         adc = ad.AnnData(X=centroids)
         adc.obs[category_key] = uniq
@@ -329,12 +329,20 @@ class ClusteringAgreement:
         self._cluster_leiden(
             ad_real_cent, self.real_resolution, real_key, self.n_neighbors
         )
-        ad_real_cent.obs = ad_real_cent.obs.set_index(data.pert_col).loc[cats_sorted]
+        ad_real_cent.obs = (
+            cast(pd.DataFrame, ad_real_cent.obs)
+            .set_index(data.pert_col)
+            .loc[cats_sorted]
+        )
         real_labels = pd.Categorical(ad_real_cent.obs[real_key])
 
         # 4. sweep predicted resolutions
         best_score = 0.0
-        ad_pred_cent.obs = ad_pred_cent.obs.set_index(data.pert_col).loc[cats_sorted]
+        ad_pred_cent.obs = (
+            cast(pd.DataFrame, ad_pred_cent.obs)
+            .set_index(data.pert_col)
+            .loc[cats_sorted]
+        )
         for r in self.pred_resolutions:
             pred_key = f"pred_clusters_{r}"
             self._cluster_leiden(ad_pred_cent, r, pred_key, self.n_neighbors)

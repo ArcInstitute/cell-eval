@@ -1,8 +1,9 @@
 import os
 import shutil
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cell_eval import MetricsEvaluator
@@ -118,7 +119,7 @@ def test_broken_adata_missing_pertcol_in_real():
     adata_pred = adata_real.copy()
 
     # Remove pert_col from adata_real
-    adata_real.obs.drop(columns=[PERT_COL], inplace=True)
+    cast(pd.DataFrame, adata_real.obs).drop(columns=[PERT_COL], inplace=True)
 
     with pytest.raises(Exception):
         MetricsEvaluator(
@@ -135,7 +136,7 @@ def test_broken_adata_missing_pertcol_in_pred():
     adata_pred = adata_real.copy()
 
     # Remove pert_col from adata_pred
-    adata_pred.obs.drop(columns=[PERT_COL], inplace=True)
+    cast(pd.DataFrame, adata_pred.obs).drop(columns=[PERT_COL], inplace=True)
 
     with pytest.raises(Exception):
         MetricsEvaluator(
@@ -195,7 +196,7 @@ def test_unknown_alternative_de_metric():
             control_pert=CONTROL_VAR,
             pert_col=PERT_COL,
             outdir=OUTDIR,
-            de_method="unknown",
+            de_method="unknown",  # type: ignore[unknown-argument]
         ).compute()
 
 
@@ -239,8 +240,8 @@ def test_eval_missing_celltype_col():
     adata_real = build_random_anndata()
     adata_pred = downsample_cells(adata_real, fraction=0.5)
 
-    adata_real.obs.drop(columns="celltype", inplace=True)
-    adata_pred.obs.drop(columns="celltype", inplace=True)
+    cast(pd.DataFrame, adata_real.obs).drop(columns="celltype", inplace=True)
+    cast(pd.DataFrame, adata_pred.obs).drop(columns="celltype", inplace=True)
 
     assert "celltype" not in adata_real.obs.columns
     assert "celltype" not in adata_pred.obs.columns
@@ -265,7 +266,7 @@ def test_eval_pdex_kwargs():
         control_pert="control",
         pert_col="perturbation",
         pdex_kwargs={
-            "exp_post_agg": True,
+            "geometric_mean": False,
         },
     )
     evaluator.compute(
@@ -282,8 +283,8 @@ def test_eval_pdex_kwargs_duplicated():
         control_pert="control",
         pert_col="perturbation",
         pdex_kwargs={
-            "exp_post_agg": True,
-            "num_workers": 4,
+            "geometric_mean": False,
+            "threads": 4,
         },
     )
     evaluator.compute(
@@ -385,23 +386,6 @@ def test_eval_downsampled_cells():
         control_pert=CONTROL_VAR,
         pert_col=PERT_COL,
         outdir=OUTDIR,
-    )
-    evaluator.compute(
-        break_on_error=True,
-    )
-    validate_expected_files(OUTDIR)
-
-
-def test_eval_alt_metric():
-    adata_real = build_random_anndata()
-    adata_pred = downsample_cells(adata_real, fraction=0.5)
-    evaluator = MetricsEvaluator(
-        adata_pred=adata_pred,
-        adata_real=adata_real,
-        control_pert=CONTROL_VAR,
-        pert_col=PERT_COL,
-        outdir=OUTDIR,
-        de_method="anderson",
     )
     evaluator.compute(
         break_on_error=True,

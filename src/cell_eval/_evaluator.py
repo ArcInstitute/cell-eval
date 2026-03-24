@@ -7,12 +7,13 @@ import anndata as ad
 import pandas as pd
 import polars as pl
 import scanpy as sc
-from pdex import parallel_differential_expression
+from pdex import pdex
 
 from cell_eval.utils import guess_is_lognorm
 
 from ._pipeline import MetricPipeline
 from ._types import PerturbationAnndataPair, initialize_de_comparison
+from .utils import _cast_float16_to_float32
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,8 @@ class MetricsEvaluator:
         Control perturbation name.
     pert_col: str = "target"
         Perturbation column name.
-    de_method: str = "wilcoxon"
-        Differential expression method.
     num_threads: int = -1
         Number of threads for parallel differential expression.
-    batch_size: int = 100
-        Batch size for parallel differential expression.
     outdir: str = "./cell-eval-outdir"
         Output directory.
     allow_discrete: bool = False
@@ -63,9 +60,7 @@ class MetricsEvaluator:
         de_real: pl.DataFrame | str | None = None,
         control_pert: str = "non-targeting",
         pert_col: str = "target",
-        de_method: str = "wilcoxon",
         num_threads: int = -1,
-        batch_size: int = 100,
         outdir: str = "./cell-eval-outdir",
         allow_discrete: bool = False,
         prefix: str | None = None,
@@ -96,9 +91,7 @@ class MetricsEvaluator:
                 anndata_pair=self.anndata_pair,
                 de_pred=de_pred,
                 de_real=de_real,
-                de_method=de_method,
                 num_threads=num_threads if num_threads != -1 else mp.cpu_count(),
-                batch_size=batch_size,
                 allow_discrete=allow_discrete,
                 outdir=outdir,
                 prefix=prefix,
@@ -170,6 +163,10 @@ def _build_anndata_pair(
         logger.info(f"Reading pred anndata from {pred}")
         pred = ad.read_h5ad(pred)
 
+    # Cast float16 to float32 since NUMBA (used by pdex) does not support float16
+    _cast_float16_to_float32(real, which="real")
+    _cast_float16_to_float32(pred, which="pred")
+
     # Validate that the input is normalized and log-transformed
     _convert_to_normlog(real, which="real", allow_discrete=allow_discrete)
     _convert_to_normlog(pred, which="pred", allow_discrete=allow_discrete)
@@ -220,9 +217,7 @@ def _build_de_comparison(
     anndata_pair: PerturbationAnndataPair | None = None,
     de_pred: pl.DataFrame | str | None = None,
     de_real: pl.DataFrame | str | None = None,
-    de_method: str = "wilcoxon",
     num_threads: int = 1,
-    batch_size: int = 100,
     allow_discrete: bool = False,
     outdir: str | None = None,
     prefix: str | None = None,
@@ -233,9 +228,7 @@ def _build_de_comparison(
             mode="real",
             de_path=de_real,
             anndata_pair=anndata_pair,
-            de_method=de_method,
             num_threads=num_threads,
-            batch_size=batch_size,
             allow_discrete=allow_discrete,
             outdir=outdir,
             prefix=prefix,
@@ -245,9 +238,7 @@ def _build_de_comparison(
             mode="pred",
             de_path=de_pred,
             anndata_pair=anndata_pair,
-            de_method=de_method,
             num_threads=num_threads,
-            batch_size=batch_size,
             allow_discrete=allow_discrete,
             outdir=outdir,
             prefix=prefix,
@@ -258,32 +249,23 @@ def _build_de_comparison(
 
 def _build_pdex_kwargs(
     reference: str,
-    groupby_key: str,
-    num_workers: int,
-    batch_size: int,
-    metric: str,
+    groupby: str,
+    threads: int,
     allow_discrete: bool,
     pdex_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pdex_kwargs = pdex_kwargs or {}
     if "reference" not in pdex_kwargs:
         pdex_kwargs["reference"] = reference
-    if "groupby_key" not in pdex_kwargs:
-        pdex_kwargs["groupby_key"] = groupby_key
-    if "num_workers" not in pdex_kwargs:
-        pdex_kwargs["num_workers"] = num_workers
-    if "batch_size" not in pdex_kwargs:
-        pdex_kwargs["batch_size"] = batch_size
-    if "metric" not in pdex_kwargs:
-        pdex_kwargs["metric"] = metric
+    if "groupby" not in pdex_kwargs:
+        pdex_kwargs["groupby"] = groupby
+    if "threads" not in pdex_kwargs:
+        pdex_kwargs["threads"] = threads
     if "is_log1p" not in pdex_kwargs:
         if allow_discrete:
             pdex_kwargs["is_log1p"] = False
         else:
             pdex_kwargs["is_log1p"] = True
-
-    # always return polars DataFrames
-    pdex_kwargs["as_polars"] = True
     return pdex_kwargs
 
 
@@ -291,9 +273,7 @@ def _load_or_build_de(
     mode: Literal["pred", "real"],
     de_path: pl.DataFrame | str | None = None,
     anndata_pair: PerturbationAnndataPair | None = None,
-    de_method: str = "wilcoxon",
     num_threads: int = 1,
-    batch_size: int = 100,
     outdir: str | None = None,
     prefix: str | None = None,
     allow_discrete: bool = False,
@@ -305,16 +285,15 @@ def _load_or_build_de(
         logger.info(f"Computing DE for {mode} data")
         pdex_kwargs = _build_pdex_kwargs(
             reference=anndata_pair.control_pert,
-            groupby_key=anndata_pair.pert_col,
-            num_workers=num_threads,
-            metric=de_method,
-            batch_size=batch_size,
+            groupby=anndata_pair.pert_col,
+            threads=num_threads,
             allow_discrete=allow_discrete,
             pdex_kwargs=pdex_kwargs or {},
         )
         logger.info(f"Using the following pdex kwargs: {pdex_kwargs}")
-        frame = parallel_differential_expression(
+        frame = pdex(
             adata=anndata_pair.real if mode == "real" else anndata_pair.pred,
+            mode="ref",
             **pdex_kwargs,
         )
         if outdir is not None:

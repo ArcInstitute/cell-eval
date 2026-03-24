@@ -1,11 +1,12 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import polars as pl
 from numpy.typing import NDArray
-from pdex import parallel_differential_expression
+from pdex import pdex
 from scipy.sparse import issparse
 
 from ._evaluator import _build_pdex_kwargs, _convert_to_normlog
@@ -23,9 +24,7 @@ def build_base_mean_adata(
     allow_discrete: bool = False,
     output_path: str | None = None,
     output_de_path: str | None = None,
-    batch_size: int = 1000,
     num_threads: int = 1,
-    de_method: str = "wilcoxon",
     pdex_kwargs: dict[str, Any] = {},
 ) -> ad.AnnData:
     if isinstance(adata, str):
@@ -67,7 +66,7 @@ def build_base_mean_adata(
             (int(counts[counts_col].sum()), baseline.size),
             baseline,
         ),
-        var=adata.var,
+        var=cast(pd.DataFrame, adata.var),
         obs=obs,
     )
 
@@ -78,21 +77,20 @@ def build_base_mean_adata(
 
     if output_path is not None:
         logger.info(f"Saving baseline data to {output_path}")
-        baseline_adata.write_h5ad(output_path)
+        baseline_adata.write_h5ad(output_path)  # type: ignore[invalid-argument-type]
 
     if output_de_path is not None:
         logger.info("Calculating differential expression")
         pdex_kwargs = _build_pdex_kwargs(
-            groupby_key=pert_col,
+            groupby=pert_col,
             reference=control_pert,
-            num_workers=num_threads,
-            metric=de_method,
-            batch_size=batch_size,
+            threads=num_threads,
             allow_discrete=allow_discrete,
             pdex_kwargs=pdex_kwargs,
         )
-        frame = parallel_differential_expression(
+        frame = pdex(
             adata=baseline_adata,
+            mode="ref",
             **pdex_kwargs,
         )
         logger.info(f"Saving differential expression results to {output_de_path}")
@@ -137,9 +135,9 @@ def _build_counts_df_from_adata(
         raise ValueError(
             f"Column '{pert_col}' not found in adata.obs: {adata.obs.columns}"
         )
-    if control_pert not in adata.obs[pert_col].unique():
+    if control_pert not in cast(pd.Series, adata.obs[pert_col]).unique():
         raise ValueError(
-            f"Control pert '{control_pert}' not found in adata.obs[{pert_col}]: {adata.obs[pert_col].unique()}"
+            f"Control pert '{control_pert}' not found in adata.obs[{pert_col}]: {cast(pd.Series, adata.obs[pert_col]).unique()}"
         )
     logger.info("Building counts DataFrame from adata")
     return (
@@ -161,7 +159,7 @@ def _build_pert_baseline(
         raise ValueError(
             f"Column '{pert_col}' not found in adata.obs: {adata.obs.columns}"
         )
-    unique_perts = adata.obs[pert_col].unique()
+    unique_perts = cast(pd.Series, adata.obs[pert_col]).unique()
     if control_pert not in unique_perts:
         raise ValueError(
             f"Control pert '{control_pert}' not found in unique_perts: {unique_perts}"
