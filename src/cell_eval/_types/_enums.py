@@ -4,8 +4,8 @@ import enum
 class DESortBy(enum.Enum):
     """Sorting options for differential expression results."""
 
-    FOLD_CHANGE = "log2_fold_change"
-    ABS_FOLD_CHANGE = "abs_log2_fold_change"
+    LOG2_FOLD_CHANGE = "log2_fold_change"
+    ABS_LOG2_FOLD_CHANGE = "abs_log2_fold_change"
     PVALUE = "p_value"
     FDR = "fdr"
 

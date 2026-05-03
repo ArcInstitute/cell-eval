@@ -13,7 +13,7 @@ def de_overlap_metric(
     k: int | None,
     metric: Literal["precision", "overlap"] = "overlap",
     fdr_threshold: float = 0.05,
-    sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
+    sort_by: DESortBy = DESortBy.ABS_LOG2_FOLD_CHANGE,
 ) -> dict[str, float]:
     """Compute overlap between real and predicted DE genes.
 

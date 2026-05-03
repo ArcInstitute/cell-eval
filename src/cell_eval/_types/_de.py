@@ -150,7 +150,10 @@ class DEResults:
         # Set FDR threshold if not provided
         fdr_threshold = fdr_threshold if fdr_threshold is not None else 0.05
 
-        descending = sort_by in {DESortBy.FOLD_CHANGE, DESortBy.ABS_FOLD_CHANGE}
+        descending = sort_by in {
+            DESortBy.LOG2_FOLD_CHANGE,
+            DESortBy.ABS_LOG2_FOLD_CHANGE,
+        }
 
         # Create a rank matrix where each row is the ordinal rank of a gene and each column is a perturbation.
         # The rank is sensitive to the sort-by column and is computed post-filtering for FDR.
@@ -216,7 +219,7 @@ class DEComparison:
         k: int | None,
         metric: Literal["overlap", "precision"] = "overlap",
         fdr_threshold: float | None = None,
-        sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
+        sort_by: DESortBy = DESortBy.ABS_LOG2_FOLD_CHANGE,
     ) -> dict[str, float]:
         """
         Compute overlap metrics across perturbations.
