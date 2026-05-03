@@ -17,7 +17,6 @@ def initialize_de_comparison(
     pred: pl.DataFrame,
     target_col: str = "target",
     feature_col: str = "feature",
-    fold_change_col: str = "fold_change",
     log2_fold_change_col: str = "log2_fold_change",
     abs_log2_fold_change_col: str = "abs_log2_fold_change",
     pvalue_col: str = "p_value",
@@ -27,7 +26,6 @@ def initialize_de_comparison(
         DEResults,
         target_col=target_col,
         feature_col=feature_col,
-        fold_change_col=fold_change_col,
         log2_fold_change_col=log2_fold_change_col,
         abs_log2_fold_change_col=abs_log2_fold_change_col,
     )
@@ -47,7 +45,6 @@ class DEResults:
     # Column names configuration
     target_col: str = "target"
     feature_col: str = "feature"
-    fold_change_col: str = "fold_change"
     log2_fold_change_col: str = "log2_fold_change"
     abs_log2_fold_change_col: str = "abs_log2_fold_change"
     pvalue_col: str = "p_value"
@@ -58,7 +55,7 @@ class DEResults:
         required_cols = {
             self.target_col,
             self.feature_col,
-            self.fold_change_col,
+            self.log2_fold_change_col,
             self.pvalue_col,
             self.fdr_col,
         }
@@ -67,7 +64,6 @@ class DEResults:
             raise ValueError(f"Missing required columns: {missing}")
 
         numeric_cols = [
-            self.fold_change_col,
             self.pvalue_col,
             self.fdr_col,
             self.log2_fold_change_col,
@@ -80,31 +76,32 @@ class DEResults:
         ]
 
         logger.info(f"Checking DE data integrity... ({self.name})")
-        fc_num_null = self.data.filter(pl.col(self.fold_change_col).is_null()).height
-        fc_num_inf = self.data.filter(pl.col(self.fold_change_col).is_infinite()).height
-        fc_num_nan = self.data.filter(pl.col(self.fold_change_col).is_nan()).height
-        if fc_num_null > 0:
+        lfc_num_null = self.data.filter(
+            pl.col(self.log2_fold_change_col).is_null()
+        ).height
+        lfc_num_inf = self.data.filter(
+            pl.col(self.log2_fold_change_col).is_infinite()
+        ).height
+        lfc_num_nan = self.data.filter(
+            pl.col(self.log2_fold_change_col).is_nan()
+        ).height
+        if lfc_num_null > 0:
             logger.warning(
-                f"Identified {fc_num_null} missing fold change values ({self.name})"
+                f"Identified {lfc_num_null} missing log2 fold change values ({self.name})"
             )
-        if fc_num_inf > 0:
+        if lfc_num_inf > 0:
             logger.warning(
-                f"Identified {fc_num_inf} infinite fold change values ({self.name})"
+                f"Identified {lfc_num_inf} infinite log2 fold change values ({self.name})"
             )
-        if fc_num_nan > 0:
+        if lfc_num_nan > 0:
             logger.warning(
-                f"Identified {fc_num_nan} NaN fold change values ({self.name})"
+                f"Identified {lfc_num_nan} NaN log2 fold change values ({self.name})"
             )
         logger.info(f"DE data integrity check complete. ({self.name})")
 
-        # Add log2 fold change columns if not present
-        if self.log2_fold_change_col not in self.data.columns:
+        # Derive abs(log2_fold_change) if not already provided.
+        if self.abs_log2_fold_change_col not in self.data.columns:
             self.data = self.data.with_columns(
-                pl.col(self.fold_change_col)
-                .log(base=2)
-                .alias(self.log2_fold_change_col)
-                .fill_nan(0.0)
-            ).with_columns(
                 pl.col(self.log2_fold_change_col)
                 .abs()
                 .alias(self.abs_log2_fold_change_col)
