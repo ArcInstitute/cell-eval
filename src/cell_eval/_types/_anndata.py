@@ -125,9 +125,9 @@ class PerturbationAnndataPair:
 
         # Create a polars dataframe with the groupby key
         frame = pl.DataFrame(
-            matrix,
+            matrix,  # ty: ignore[invalid-argument-type]
         ).with_columns(
-            groupby_key=adata.obs[groupby_key].to_numpy(str),  # type: ignore
+            groupby_key=adata.obs[groupby_key].to_numpy(str),
         )
 
         # Pseudobulk (mean) the dataframe by the groupby key

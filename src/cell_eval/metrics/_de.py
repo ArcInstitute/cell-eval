@@ -13,7 +13,7 @@ def de_overlap_metric(
     k: int | None,
     metric: Literal["precision", "overlap"] = "overlap",
     fdr_threshold: float = 0.05,
-    sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
+    sort_by: DESortBy = DESortBy.ABS_LOG2_FOLD_CHANGE,
 ) -> dict[str, float]:
     """Compute overlap between real and predicted DE genes.
 
@@ -124,7 +124,9 @@ class DESpearmanLFC:
                 suffix="_pred",
                 how="left",
             )
-            .with_columns(pl.col(f"{data.real.fold_change_col}_pred").fill_null(0.0))
+            .with_columns(
+                pl.col(f"{data.real.log2_fold_change_col}_pred").fill_null(0.0)
+            )
         )
 
         for row in (
@@ -133,8 +135,8 @@ class DESpearmanLFC:
             )
             .agg(
                 pl.corr(
-                    pl.col(data.real.fold_change_col).cast(pl.Float64),
-                    pl.col(f"{data.real.fold_change_col}_pred").cast(pl.Float64),
+                    pl.col(data.real.log2_fold_change_col).cast(pl.Float64),
+                    pl.col(f"{data.real.log2_fold_change_col}_pred").cast(pl.Float64),
                     method="spearman",
                 ).alias("spearman_corr"),
             )
