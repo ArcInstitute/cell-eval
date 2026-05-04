@@ -49,5 +49,3 @@ def test_de_results_preserves_negative_log2_fold_change() -> None:
     abs_lfc = de.data["abs_log2_fold_change"].cast(pl.Float64).to_list()
     assert lfc == [-1.0, 0.0, 1.0, 2.0]
     assert abs_lfc == [1.0, 0.0, 1.0, 2.0]
-
-
