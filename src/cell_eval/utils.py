@@ -41,7 +41,7 @@ def guess_is_lognorm(
     if isinstance(adata.X, csr_matrix) or isinstance(adata.X, csc_matrix):
         frac, _ = np.modf(adata.X.data)
     elif adata.is_view:
-        frac, _ = np.modf(adata.X.toarray())  # type: ignore[unresolved-attribute]
+        frac, _ = np.modf(adata.X.toarray())  # ty: ignore[unresolved-attribute]
     elif adata.X is None:
         raise ValueError("adata.X is None")
     else:
@@ -60,8 +60,8 @@ def guess_is_lognorm(
         max_val = adata.X.max()
         min_val = adata.X.min()
     else:
-        max_val = float(np.max(adata.X))  # type: ignore[no-matching-overload]
-        min_val = float(np.min(adata.X))  # type: ignore[no-matching-overload]
+        max_val = float(np.max(adata.X))  # ty: ignore[no-matching-overload]
+        min_val = float(np.min(adata.X))  # ty: ignore[no-matching-overload]
 
     # Validate range
     if min_val < 0:

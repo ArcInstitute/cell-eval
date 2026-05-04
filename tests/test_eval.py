@@ -196,7 +196,7 @@ def test_unknown_alternative_de_metric():
             control_pert=CONTROL_VAR,
             pert_col=PERT_COL,
             outdir=OUTDIR,
-            de_method="unknown",  # type: ignore[unknown-argument]
+            de_method="unknown",  # ty: ignore[unknown-argument]
         ).compute()
 
 
