@@ -18,6 +18,19 @@ from .utils import _cast_float16_to_float32
 logger = logging.getLogger(__name__)
 
 
+def _available_cpus() -> int:
+    """Return CPUs the current process is allowed to use.
+
+    Uses ``os.sched_getaffinity`` on Linux so SLURM/cgroup/taskset limits are
+    respected; falls back to ``mp.cpu_count`` on macOS/Windows where that API
+    is unavailable (those platforms typically run locally without cgroup caps).
+    """
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return mp.cpu_count()
+
+
 class MetricsEvaluator:
     """
     Evaluates benchmarking metrics of a predicted and real anndata object.
@@ -70,6 +83,9 @@ class MetricsEvaluator:
         # Enable a global string cache for categorical columns
         pl.enable_string_cache()
 
+        if num_threads == -1:
+            num_threads = _available_cpus()
+
         if os.path.exists(outdir):
             logger.warning(
                 f"Output directory {outdir} already exists, potential overwrite occurring"
@@ -91,7 +107,7 @@ class MetricsEvaluator:
                 anndata_pair=self.anndata_pair,
                 de_pred=de_pred,
                 de_real=de_real,
-                num_threads=num_threads if num_threads != -1 else mp.cpu_count(),
+                num_threads=num_threads,
                 allow_discrete=allow_discrete,
                 outdir=outdir,
                 prefix=prefix,
