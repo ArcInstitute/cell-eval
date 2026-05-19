@@ -20,17 +20,20 @@ from .._types import PerturbationAnndataPair
 
 logger = getLogger(__name__)
 
+_L1_METRICS = {"l1", "manhattan", "cityblock"}
+_L2_METRICS = {"l2", "euclidean"}
+
 
 def pearson_delta(
     data: PerturbationAnndataPair, embed_key: str | None = None
 ) -> dict[str, float]:
     """Compute Pearson correlation between mean differences from control."""
-    return _generic_evaluation(
-        data,
-        pearsonr,
-        use_delta=True,
-        embed_key=embed_key,
-    )
+    real_effects, pred_effects = _bulk_effect_matrices(data, embed_key=embed_key)
+    correlations = _rowwise_pearson(pred_effects, real_effects)
+    return {
+        str(pert): float(correlation)
+        for pert, correlation in zip(data.perts, correlations)
+    }
 
 
 def mse(
@@ -149,53 +152,157 @@ def discrimination_score(
         # Ignore the embedding key for L1
         embed_key = None
 
-    # Compute perturbation effects for all perturbations
-    real_effects = np.vstack(
-        [
-            d.perturbation_effect(which="real", abs=False)
-            for d in data.iter_bulk_arrays(embed_key=embed_key)
-        ]
+    real_effects, pred_effects = _bulk_effect_matrices(data, embed_key=embed_key)
+    excluded_indices = _excluded_gene_indices(
+        data,
+        embed_key=embed_key,
+        exclude_target_gene=exclude_target_gene,
     )
-    pred_effects = np.vstack(
-        [
-            d.perturbation_effect(which="pred", abs=False)
-            for d in data.iter_bulk_arrays(embed_key=embed_key)
-        ]
+    distances = _pairwise_distances_with_exclusions(
+        pred_effects=pred_effects,
+        real_effects=real_effects,
+        metric=metric,
+        excluded_indices=excluded_indices,
     )
+    order = np.argsort(distances, axis=1)
+    ranks = np.argmax(order == np.arange(data.perts.size)[:, None], axis=1)
 
-    norm_ranks = {}
-    for p_idx, p in enumerate(data.perts):
-        # Determine which features to include in the comparison
-        if exclude_target_gene and not embed_key:
-            # For expression data, exclude the target gene
-            include_mask = np.flatnonzero(data.genes != p)
-        else:
-            # For embedding data or when not excluding target gene, use all features
-            include_mask = np.ones(real_effects.shape[1], dtype=bool)
+    return {
+        str(pert): 1 - float(rank) / data.perts.size
+        for pert, rank in zip(data.perts, ranks)
+    }
 
-        # Compute distances to all real effects
+
+def _bulk_effect_matrices(
+    data: PerturbationAnndataPair,
+    embed_key: str | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return real/pred perturbation-control effects in data.perts order."""
+    data._initialize_bulk_arrays(embed_key)
+    cache_key = embed_key or "_default"
+    assert data.bulk_real is not None
+    assert data.bulk_pred is not None
+    keys, real_bulk = data.bulk_real[cache_key]
+    _, pred_bulk = data.bulk_pred[cache_key]
+    positions = {str(key): idx for idx, key in enumerate(keys)}
+    pert_positions = np.array([positions[str(pert)] for pert in data.perts])
+    ctrl_position = positions[str(data.control_pert)]
+    real_effects = real_bulk[pert_positions] - real_bulk[ctrl_position]
+    pred_effects = pred_bulk[pert_positions] - pred_bulk[ctrl_position]
+    return np.asarray(real_effects), np.asarray(pred_effects)
+
+
+def _rowwise_pearson(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    x_centered = x - x.mean(axis=1, keepdims=True)
+    y_centered = y - y.mean(axis=1, keepdims=True)
+    numerator = np.sum(x_centered * y_centered, axis=1)
+    denominator = np.sqrt(
+        np.sum(x_centered * x_centered, axis=1)
+        * np.sum(y_centered * y_centered, axis=1)
+    )
+    correlations = np.full(x.shape[0], np.nan, dtype=np.float64)
+    np.divide(numerator, denominator, out=correlations, where=denominator > 0)
+    return correlations
+
+
+def _excluded_gene_indices(
+    data: PerturbationAnndataPair,
+    embed_key: str | None,
+    exclude_target_gene: bool,
+) -> list[np.ndarray]:
+    if embed_key or not exclude_target_gene:
+        return [np.array([], dtype=np.int64) for _ in data.perts]
+    return [np.flatnonzero(data.genes == pert) for pert in data.perts]
+
+
+def _pairwise_distances_with_exclusions(
+    pred_effects: np.ndarray,
+    real_effects: np.ndarray,
+    metric: str,
+    excluded_indices: list[np.ndarray],
+) -> np.ndarray:
+    pred_effects = np.asarray(pred_effects, dtype=np.float64)
+    real_effects = np.asarray(real_effects, dtype=np.float64)
+    has_exclusions = any(indices.size > 0 for indices in excluded_indices)
+
+    if metric in _L1_METRICS:
         distances = skm.pairwise_distances(
-            real_effects[
-                :, include_mask
-            ],  # compare to all real effects across perturbations
-            pred_effects[p_idx, include_mask].reshape(
-                1, -1
-            ),  # select pred effect for current perturbation
+            pred_effects, real_effects, metric="manhattan"
+        )
+        for idx, excluded in enumerate(excluded_indices):
+            if excluded.size:
+                distances[idx] -= np.abs(
+                    real_effects[:, excluded] - pred_effects[idx, excluded]
+                ).sum(axis=1)
+        np.maximum(distances, 0, out=distances)
+        return distances
+
+    if metric in _L2_METRICS:
+        pred_sq = np.sum(pred_effects * pred_effects, axis=1)
+        real_sq = np.sum(real_effects * real_effects, axis=1)
+        distances_sq = (
+            pred_sq[:, None] + real_sq[None, :] - 2 * (pred_effects @ real_effects.T)
+        )
+        for idx, excluded in enumerate(excluded_indices):
+            if excluded.size:
+                excluded_delta = real_effects[:, excluded] - pred_effects[idx, excluded]
+                distances_sq[idx] -= np.sum(excluded_delta * excluded_delta, axis=1)
+        np.maximum(distances_sq, 0, out=distances_sq)
+        return np.sqrt(distances_sq)
+
+    if metric == "cosine":
+        return _cosine_distances_with_exclusions(
+            pred_effects=pred_effects,
+            real_effects=real_effects,
+            excluded_indices=excluded_indices,
+        )
+
+    if not has_exclusions:
+        return skm.pairwise_distances(pred_effects, real_effects, metric=metric)
+
+    distances = np.empty((pred_effects.shape[0], real_effects.shape[0]))
+    for idx, excluded in enumerate(excluded_indices):
+        include_mask = np.ones(real_effects.shape[1], dtype=bool)
+        include_mask[excluded] = False
+        distances[idx] = skm.pairwise_distances(
+            pred_effects[idx, include_mask].reshape(1, -1),
+            real_effects[:, include_mask],
             metric=metric,
-        ).flatten()
+        ).ravel()
+    return distances
 
-        # Sort by distance (ascending - lower distance = better match)
-        sorted_indices = np.argsort(distances)
 
-        # Find rank of the correct perturbation
-        p_index = np.flatnonzero(data.perts == p)[0]
-        rank = np.flatnonzero(sorted_indices == p_index)[0]
+def _cosine_distances_with_exclusions(
+    pred_effects: np.ndarray,
+    real_effects: np.ndarray,
+    excluded_indices: list[np.ndarray],
+) -> np.ndarray:
+    dot = pred_effects @ real_effects.T
+    pred_sq = np.sum(pred_effects * pred_effects, axis=1)
+    real_sq = np.sum(real_effects * real_effects, axis=1)
+    distances = np.empty_like(dot)
 
-        # Normalize rank by total number of perturbations
-        norm_rank = rank / data.perts.size
-        norm_ranks[str(p)] = 1 - norm_rank
+    for idx, excluded in enumerate(excluded_indices):
+        row_dot = dot[idx].copy()
+        row_pred_sq = pred_sq[idx]
+        row_real_sq = real_sq.copy()
+        if excluded.size:
+            row_dot -= (real_effects[:, excluded] * pred_effects[idx, excluded]).sum(
+                axis=1
+            )
+            row_pred_sq -= float(np.sum(pred_effects[idx, excluded] ** 2))
+            row_real_sq -= np.sum(real_effects[:, excluded] ** 2, axis=1)
+        denominator = np.sqrt(max(row_pred_sq, 0.0)) * np.sqrt(
+            np.maximum(row_real_sq, 0.0)
+        )
+        similarity = np.zeros_like(row_dot)
+        np.divide(row_dot, denominator, out=similarity, where=denominator > 0)
+        distances[idx] = 1 - similarity
 
-    return norm_ranks
+    np.clip(distances, 0, 2, out=distances)
+    return distances
 
 
 def _generic_evaluation(
