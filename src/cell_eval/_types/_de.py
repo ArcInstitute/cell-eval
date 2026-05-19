@@ -224,7 +224,7 @@ class DEComparison:
     def compute_overlap(
         self,
         k: int | None,
-        metric: Literal["overlap", "precision"] = "overlap",
+        metric: Literal["overlap", "precision", "jaccard"] = "overlap",
         fdr_threshold: float | None = None,
         sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
     ) -> dict[str, float]:
@@ -269,17 +269,34 @@ class DEComparison:
                 case "overlap":
                     k_eff = real_genes.size if not k else k
                     k_eff = min(k_eff, real_genes.size)
+                    if k_eff == 0:
+                        overlaps[pert] = 0.0
+                        continue
+                    real_subset = real_genes[:k_eff]
+                    pred_subset = pred_genes[:k_eff]
+                    overlaps[pert] = np.intersect1d(real_subset, pred_subset).size / k_eff
                 case "precision":
                     k_eff = pred_genes.size if not k else k
                     k_eff = min(k_eff, pred_genes.size)
+                    if k_eff == 0:
+                        overlaps[pert] = 0.0
+                        continue
+                    real_subset = real_genes[:k_eff]
+                    pred_subset = pred_genes[:k_eff]
+                    overlaps[pert] = np.intersect1d(real_subset, pred_subset).size / k_eff
+                case "jaccard":
+                    real_k = real_genes.size if not k else min(k, real_genes.size)
+                    pred_k = pred_genes.size if not k else min(k, pred_genes.size)
+                    real_subset = real_genes[:real_k]
+                    pred_subset = pred_genes[:pred_k]
+                    union_size = np.union1d(real_subset, pred_subset).size
+                    if union_size == 0:
+                        overlaps[pert] = 0.0
+                    else:
+                        overlaps[pert] = (
+                            np.intersect1d(real_subset, pred_subset).size / union_size
+                        )
                 case _:
                     raise ValueError(f"Invalid metric: {metric}")
-
-            if k_eff == 0:
-                overlaps[pert] = 0.0
-            else:
-                real_subset = real_genes[:k_eff]
-                pred_subset = pred_genes[:k_eff]
-                overlaps[pert] = np.intersect1d(real_subset, pred_subset).size / k_eff
 
         return overlaps

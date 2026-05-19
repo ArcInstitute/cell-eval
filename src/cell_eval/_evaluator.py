@@ -56,9 +56,10 @@ class MetricsEvaluator:
         Keyword arguments for parallel_differential_expression.
         These will overwrite arguments passed to MetricsEvaluator.__init__ if they conflict.
     fix_cells: int | None = None
-        If set to a positive integer, resample each perturbation condition to exactly
-        this many cells (downsample without replacement, upsample with replacement)
-        before DE computation.
+        If set to a positive integer, resample each non-control perturbation
+        condition in predicted data to exactly this many cells (downsample
+        without replacement, upsample with replacement) before DE computation.
+        Real data is left untouched.
     """
 
     def __init__(
@@ -360,10 +361,11 @@ def _build_pdex_kwargs(
 def _resample_adata_to_fixed_cells_per_condition(
     adata: ad.AnnData,
     pert_col: str,
+    control_pert: str | None = None,
     fix_cells: int | None = None,
     random_seed: int = 0,
 ) -> ad.AnnData:
-    """Resample each perturbation condition to a fixed number of cells."""
+    """Resample each non-control perturbation condition to a fixed number of cells."""
     if fix_cells is None or fix_cells == 0:
         return adata
     if fix_cells < 0:
@@ -378,8 +380,14 @@ def _resample_adata_to_fixed_cells_per_condition(
     sampled_indices: list[np.ndarray] = []
     n_downsampled = 0
     n_upsampled = 0
+    n_skipped = 0
     for pert in unique_perts:
         idx = np.flatnonzero(perts == pert)
+        if control_pert is not None and pert == control_pert:
+            chosen = idx
+            n_skipped += 1
+            sampled_indices.append(np.asarray(chosen, dtype=np.int64))
+            continue
         if idx.size > fix_cells:
             chosen = rng.choice(idx, size=fix_cells, replace=False)
             n_downsampled += 1
@@ -392,11 +400,12 @@ def _resample_adata_to_fixed_cells_per_condition(
 
     selected = np.concatenate(sampled_indices)
     logger.info(
-        "Applied fix_cells=%d on %d conditions (%d downsampled, %d upsampled)",
+        "Applied fix_cells=%d on %d non-control conditions (%d downsampled, %d upsampled); %d condition(s) skipped",
         fix_cells,
-        unique_perts.size,
+        unique_perts.size - n_skipped,
         n_downsampled,
         n_upsampled,
+        n_skipped,
     )
     return adata[selected, :].copy()
 
@@ -429,12 +438,16 @@ def _load_or_build_de(
         )
         logger.info(f"Using the following pdex kwargs: {pdex_kwargs}")
         adata = anndata_pair.real if mode == "real" else anndata_pair.pred
-        adata = _resample_adata_to_fixed_cells_per_condition(
-            adata=adata,
-            pert_col=anndata_pair.pert_col,
-            fix_cells=fix_cells,
-            random_seed=0 if mode == "real" else 1,
-        )
+        if mode == "pred":
+            adata = _resample_adata_to_fixed_cells_per_condition(
+                adata=adata,
+                pert_col=anndata_pair.pert_col,
+                control_pert=anndata_pair.control_pert,
+                fix_cells=fix_cells,
+                random_seed=1,
+            )
+        elif fix_cells:
+            logger.info("fix_cells applies only to predicted data; real data is unchanged")
         frame = parallel_differential_expression(
             adata=adata,
             **pdex_kwargs,

@@ -18,13 +18,16 @@ from .._types import DEComparison, DESortBy
 def de_overlap_metric(
     data: DEComparison,
     k: int | None,
-    metric: Literal["precision", "overlap"] = "overlap",
+    metric: Literal["precision", "overlap", "jaccard"] = "overlap",
     fdr_threshold: float = 0.05,
     sort_by: DESortBy = DESortBy.ABS_FOLD_CHANGE,
 ) -> dict[str, float]:
-    """Compute overlap between real and predicted DE genes.
+    """Compute overlap-style metrics between real and predicted DE genes.
 
-    Note: use `k` argument for measuring recall and use `topk` argument for measuring precision.
+    `metric` can be:
+    - `overlap`: intersection / k_real
+    - `precision`: intersection / k_pred
+    - `jaccard`: intersection / union
 
     """
     return data.compute_overlap(

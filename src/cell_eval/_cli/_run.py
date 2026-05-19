@@ -90,8 +90,9 @@ def parse_args_run(parser: ap.ArgumentParser):
         type=int,
         default=None,
         help=(
-            "If set to a positive int, resample each perturbation condition to this "
-            "many cells before DE computation (0 or None disables)"
+            "If set to a positive int, resample each non-control perturbation "
+            "condition in predicted data to this many cells before DE computation "
+            "(real data is untouched; 0 or None disables)"
         ),
     )
     parser.add_argument(

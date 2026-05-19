@@ -103,13 +103,13 @@ metrics_registry.register(
 )
 
 
-for metric in ["overlap", "precision"]:
+for metric in ["overlap", "precision", "jaccard"]:
     for n in [None, 50, 100, 200, 500]:
         repr = n if n else "N"
         metrics_registry.register(
             name=f"{metric}_at_{repr}",
             metric_type=MetricType.DE,
-            description=f"Overlap metric ({metric}) of top {repr} DE genes",
+            description=f"DE set metric ({metric}) of top {repr} genes",
             best_value=MetricBestValue.ONE,
             func=de_overlap_metric,
             kwargs={"k": n, "metric": metric},
