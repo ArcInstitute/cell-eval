@@ -70,6 +70,7 @@ def test_broken_adata_not_normlog():
         control_pert=CONTROL_VAR,
         pert_col=PERT_COL,
         outdir=OUTDIR,
+        is_log1p=False,
     )
     evaluator.compute(
         break_on_error=True,
@@ -86,32 +87,37 @@ def test_broken_adata_not_normlog_skip_check():
         pert_col=PERT_COL,
         outdir=OUTDIR,
         allow_discrete=True,
+        is_log1p=False,
     )
     evaluator.compute(
         break_on_error=True,
     )
 
 
-def test_broken_adata_invalid_pred_scale():
-    """Test that predicted data with invalid scale is rejected."""
+def test_eval_trusts_declared_log1p_without_scale_scan():
+    """MetricsEvaluator should not scan or transform .X when is_log1p is set."""
     adata_real = build_random_anndata(normlog=True)
     adata_pred = adata_real.copy()
 
-    # Create invalid predicted data: mix of raw counts and log1p
+    # Values above the old log1p threshold used to fail during scale guessing.
     adata_pred.X = np.random.uniform(
         0,
         5000,
         size=adata_pred.X.shape,  # type: ignore
     )
+    before = np.asarray(adata_pred.X).copy()
 
-    with pytest.raises(ValueError, match="Invalid scale.*exceeds log1p threshold"):
-        MetricsEvaluator(
-            adata_pred=adata_pred,
-            adata_real=adata_real,
-            control_pert=CONTROL_VAR,
-            pert_col=PERT_COL,
-            outdir=OUTDIR,
-        )
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_pred,
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+        skip_de=True,
+        is_log1p=True,
+    )
+
+    np.testing.assert_array_equal(evaluator.anndata_pair.pred.X, before)
 
 
 def test_broken_adata_missing_pertcol_in_real():
@@ -290,6 +296,22 @@ def test_eval_pdex_kwargs_duplicated():
     evaluator.compute(
         break_on_error=True,
     )
+
+
+def test_eval_pdex_kwargs_is_log1p_conflict():
+    adata_real = build_random_anndata()
+    adata_pred = downsample_cells(adata_real, fraction=0.5)
+    with pytest.raises(ValueError, match="Conflicting log1p configuration"):
+        MetricsEvaluator(
+            adata_pred=adata_pred,
+            adata_real=adata_real,
+            control_pert="control",
+            pert_col="perturbation",
+            is_log1p=True,
+            pdex_kwargs={
+                "is_log1p": False,
+            },
+        )
 
 
 def validate_expected_files(

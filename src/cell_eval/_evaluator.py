@@ -59,12 +59,15 @@ class MetricsEvaluator:
     outdir: str = "./cell-eval-outdir"
         Output directory.
     allow_discrete: bool = False
-        Allow discrete data.
+        Deprecated; cell-eval now trusts the caller-provided scale.
     prefix: str | None = None
         Prefix for output files.
     pdex_kwargs: dict[str, Any] | None = None
         Keyword arguments for parallel_differential_expression.
-        These will overwrite arguments passed to MetricsEvaluator.__init__ if they conflict.
+        These may not conflict with ``is_log1p``.
+    is_log1p: bool = True
+        Whether input AnnData matrices are already log1p-normalized. cell-eval trusts
+        this flag and does not inspect or transform input matrices.
     """
 
     def __init__(
@@ -81,6 +84,7 @@ class MetricsEvaluator:
         prefix: str | None = None,
         pdex_kwargs: dict[str, Any] | None = None,
         skip_de: bool = False,
+        is_log1p: bool = True,
     ):
         # Enable a global string cache for categorical columns
         pl.enable_string_cache()
@@ -97,16 +101,15 @@ class MetricsEvaluator:
         # Stored so the data ceiling (compute_ceiling) can reuse the exact same
         # DE / pdex configuration as the main evaluation for comparability.
         self._num_threads = num_threads
-        self._allow_discrete = allow_discrete
+        self._is_log1p = is_log1p
         self._skip_de = skip_de
-        self._pdex_kwargs = pdex_kwargs or {}
+        self._pdex_kwargs = dict(pdex_kwargs or {})
 
         self.anndata_pair = _build_anndata_pair(
             real=adata_real,
             pred=adata_pred,
             control_pert=control_pert,
             pert_col=pert_col,
-            allow_discrete=allow_discrete,
         )
 
         if skip_de:
@@ -117,10 +120,10 @@ class MetricsEvaluator:
                 de_pred=de_pred,
                 de_real=de_real,
                 num_threads=num_threads,
-                allow_discrete=allow_discrete,
                 outdir=outdir,
                 prefix=prefix,
-                pdex_kwargs=self._pdex_kwargs,
+                pdex_kwargs=dict(self._pdex_kwargs),
+                is_log1p=is_log1p,
             )
 
         self.outdir = outdir
@@ -173,7 +176,7 @@ class MetricsEvaluator:
 
         Outputs mirror :meth:`compute` (``ceiling_results.csv`` /
         ``agg_ceiling_results.csv``). The bootstrap DE is computed in-memory and
-        not written to disk. The same ``pdex_kwargs`` and ``allow_discrete`` used
+        not written to disk. The same ``pdex_kwargs`` and ``is_log1p`` used
         for the main evaluation are reused so the ceiling is directly comparable.
         """
         logger.info(f"Computing data ceiling (seed={seed})")
@@ -193,10 +196,10 @@ class MetricsEvaluator:
             ceiling_de = _build_de_comparison(
                 anndata_pair=ceiling_pair,
                 num_threads=self._num_threads,
-                allow_discrete=self._allow_discrete,
                 outdir=None,  # keep the bootstrap DE in-memory; never persisted
                 prefix=None,
                 pdex_kwargs=dict(self._pdex_kwargs),
+                is_log1p=self._is_log1p,
             )
 
         pipeline = MetricPipeline(
@@ -286,7 +289,6 @@ def _build_anndata_pair(
     pred: ad.AnnData | str,
     control_pert: str,
     pert_col: str,
-    allow_discrete: bool = False,
 ):
     if isinstance(real, str):
         logger.info(f"Reading real anndata from {real}")
@@ -298,10 +300,6 @@ def _build_anndata_pair(
     # Cast float16 to float32 since NUMBA (used by pdex) does not support float16
     _cast_float16_to_float32(real, which="real")
     _cast_float16_to_float32(pred, which="pred")
-
-    # Validate that the input is normalized and log-transformed
-    _convert_to_normlog(real, which="real", allow_discrete=allow_discrete)
-    _convert_to_normlog(pred, which="pred", allow_discrete=allow_discrete)
 
     # Build the anndata pair
     return PerturbationAnndataPair(
@@ -350,10 +348,10 @@ def _build_de_comparison(
     de_pred: pl.DataFrame | str | None = None,
     de_real: pl.DataFrame | str | None = None,
     num_threads: int = 1,
-    allow_discrete: bool = False,
     outdir: str | None = None,
     prefix: str | None = None,
     pdex_kwargs: dict[str, Any] | None = None,
+    is_log1p: bool = True,
 ):
     return initialize_de_comparison(
         real=_load_or_build_de(
@@ -361,20 +359,20 @@ def _build_de_comparison(
             de_path=de_real,
             anndata_pair=anndata_pair,
             num_threads=num_threads,
-            allow_discrete=allow_discrete,
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
+            is_log1p=is_log1p,
         ),
         pred=_load_or_build_de(
             mode="pred",
             de_path=de_pred,
             anndata_pair=anndata_pair,
             num_threads=num_threads,
-            allow_discrete=allow_discrete,
             outdir=outdir,
             prefix=prefix,
             pdex_kwargs=pdex_kwargs or {},
+            is_log1p=is_log1p,
         ),
     )
 
@@ -383,10 +381,10 @@ def _build_pdex_kwargs(
     reference: str,
     groupby: str,
     threads: int,
-    allow_discrete: bool,
+    is_log1p: bool,
     pdex_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    pdex_kwargs = pdex_kwargs or {}
+    pdex_kwargs = dict(pdex_kwargs or {})
     if "reference" not in pdex_kwargs:
         pdex_kwargs["reference"] = reference
     if "groupby" not in pdex_kwargs:
@@ -394,10 +392,12 @@ def _build_pdex_kwargs(
     if "threads" not in pdex_kwargs:
         pdex_kwargs["threads"] = threads
     if "is_log1p" not in pdex_kwargs:
-        if allow_discrete:
-            pdex_kwargs["is_log1p"] = False
-        else:
-            pdex_kwargs["is_log1p"] = True
+        pdex_kwargs["is_log1p"] = is_log1p
+    elif bool(pdex_kwargs["is_log1p"]) != is_log1p:
+        raise ValueError(
+            "Conflicting log1p configuration: MetricsEvaluator(is_log1p="
+            f"{is_log1p}) but pdex_kwargs['is_log1p']={pdex_kwargs['is_log1p']!r}"
+        )
     return pdex_kwargs
 
 
@@ -408,8 +408,8 @@ def _load_or_build_de(
     num_threads: int = 1,
     outdir: str | None = None,
     prefix: str | None = None,
-    allow_discrete: bool = False,
     pdex_kwargs: dict[str, Any] | None = None,
+    is_log1p: bool = True,
 ) -> pl.DataFrame:
     if de_path is None:
         if anndata_pair is None:
@@ -419,8 +419,8 @@ def _load_or_build_de(
             reference=anndata_pair.control_pert,
             groupby=anndata_pair.pert_col,
             threads=num_threads,
-            allow_discrete=allow_discrete,
             pdex_kwargs=pdex_kwargs or {},
+            is_log1p=is_log1p,
         )
         logger.info(f"Using the following pdex kwargs: {pdex_kwargs}")
         frame = pdex(

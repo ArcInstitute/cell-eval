@@ -85,7 +85,7 @@ def build_base_mean_adata(
             groupby=pert_col,
             reference=control_pert,
             threads=num_threads,
-            allow_discrete=allow_discrete,
+            is_log1p=not allow_discrete,
             pdex_kwargs=pdex_kwargs,
         )
         frame = pdex(

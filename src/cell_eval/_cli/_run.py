@@ -82,7 +82,13 @@ def parse_args_run(parser: ap.ArgumentParser):
     parser.add_argument(
         "--allow-discrete",
         action="store_true",
-        help="Allow discrete data to be evaluated (usually expected to be norm-logged inputs)",
+        help="Deprecated; inputs are trusted as provided. Use --no-is-log1p to configure pdex for non-log1p inputs.",
+    )
+    parser.add_argument(
+        "--is-log1p",
+        action=ap.BooleanOptionalAction,
+        default=True,
+        help="Whether input AnnData .X is already log1p-normalized. cell-eval trusts this flag and does not transform inputs [default: %(default)s]",
     )
     parser.add_argument(
         "--profile",
@@ -172,6 +178,7 @@ def run_evaluation(args: ap.Namespace):
                 allow_discrete=args.allow_discrete,
                 prefix=ct,
                 skip_de=args.profile == "pds",
+                is_log1p=args.is_log1p,
             )
             evaluator.compute(
                 profile=args.profile,
@@ -200,6 +207,7 @@ def run_evaluation(args: ap.Namespace):
             outdir=args.outdir,
             allow_discrete=args.allow_discrete,
             skip_de=args.profile == "pds",
+            is_log1p=args.is_log1p,
         )
         evaluator.compute(
             profile=args.profile,

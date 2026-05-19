@@ -58,8 +58,12 @@ cell-eval run \
     -ap <your/path/to/pred>.h5ad \
     -ar <your/path/to/real>.h5ad \
     --num-threads 64 \
+    --is-log1p \
     --profile full
 ```
+
+`cell-eval run` trusts the declared input scale. It does not guess whether
+matrices are log1p-normalized and does not transform `.X` internally.
 
 To run this as a python module you will need to use the `MetricsEvaluator` class.
 
@@ -75,6 +79,7 @@ evaluator = MetricsEvaluator(
     control_pert="control",
     pert_col="perturbation",
     num_threads=64,
+    is_log1p=True,
 )
 (results, agg_results) = evaluator.compute()
 ```
