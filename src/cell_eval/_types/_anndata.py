@@ -5,7 +5,6 @@ from typing import Iterator, Literal, cast
 import anndata as ad
 import numpy as np
 import pandas as pd
-import polars as pl
 from numpy.typing import NDArray
 from scipy.sparse import issparse
 from tqdm import tqdm
@@ -117,29 +116,61 @@ class PerturbationAnndataPair:
     ) -> tuple[NDArray[np.str_], NDArray[np.float64]]:
         """Get bulk anndata for a groupby key."""
 
-        matrix = adata.X if not embed_key else adata.obsm[embed_key]
+        matrix = adata.X if not embed_key else adata.obsm[embed_key]  # type: ignore
         if issparse(matrix):
-            # Convert sparse matrix to dense array
-            logger.info("Converting sparse matrix to dense array for bulk calculation")
-            matrix = matrix.toarray()  # type: ignore
+            return PerturbationAnndataPair._bulk_sparse_matrix(
+                matrix=matrix,  # type: ignore[arg-type]
+                group_values=adata.obs[groupby_key].to_numpy(str),
+            )
 
-        # Create a polars dataframe with the groupby key
-        frame = pl.DataFrame(
-            matrix,  # ty: ignore[invalid-argument-type]
-        ).with_columns(
-            groupby_key=adata.obs[groupby_key].to_numpy(str),
+        return PerturbationAnndataPair._bulk_dense_matrix(
+            matrix=np.asarray(matrix),
+            group_values=adata.obs[groupby_key].to_numpy(str),
         )
 
-        # Pseudobulk (mean) the dataframe by the groupby key
-        bulked = frame.group_by("groupby_key").mean().sort("groupby_key")
+    @staticmethod
+    def _bulk_dense_matrix(
+        matrix: NDArray,
+        group_values: NDArray[np.str_],
+    ) -> tuple[NDArray[np.str_], NDArray[np.float64]]:
+        """Pseudobulk a dense matrix without materializing an N-cell dataframe."""
+        keys, inverse = np.unique(group_values, return_inverse=True)
+        counts = np.bincount(inverse, minlength=keys.size).astype(np.float64)
+        sums = np.zeros((keys.size, matrix.shape[1]), dtype=np.float64)
 
-        # identify the key column
-        keys = bulked["groupby_key"].to_numpy()
+        run_starts = np.r_[0, np.flatnonzero(inverse[1:] != inverse[:-1]) + 1]
+        run_stops = np.r_[run_starts[1:], inverse.size]
+        if run_starts.size <= max(keys.size * 4, 1024):
+            for start, stop in zip(run_starts, run_stops):
+                sums[inverse[start]] += matrix[start:stop].sum(axis=0, dtype=np.float64)
+        else:
+            np.add.at(sums, inverse, matrix)
 
-        # identify the pseudobulks
-        values = bulked.drop("groupby_key").to_numpy()
+        return keys, sums / counts[:, None]
 
-        return (keys, values)
+    @staticmethod
+    def _bulk_sparse_matrix(
+        matrix,
+        group_values: NDArray[np.str_],
+    ) -> tuple[NDArray[np.str_], NDArray[np.float64]]:
+        """Pseudobulk a sparse matrix without densifying every cell."""
+        keys, inverse = np.unique(group_values, return_inverse=True)
+        counts = np.bincount(inverse, minlength=keys.size).astype(np.float64)
+        sums = np.zeros((keys.size, matrix.shape[1]), dtype=np.float64)
+
+        run_starts = np.r_[0, np.flatnonzero(inverse[1:] != inverse[:-1]) + 1]
+        run_stops = np.r_[run_starts[1:], inverse.size]
+        if run_starts.size <= max(keys.size * 4, 1024):
+            for start, stop in zip(run_starts, run_stops):
+                sums[inverse[start]] += np.asarray(
+                    matrix[start:stop].sum(axis=0)
+                ).ravel()
+        else:
+            for group_idx in range(keys.size):
+                rows = np.flatnonzero(inverse == group_idx)
+                sums[group_idx] = np.asarray(matrix[rows].sum(axis=0)).ravel()
+
+        return keys, sums / counts[:, None]
 
     @staticmethod
     def pert_mask(perts: NDArray[np.str_]) -> dict[str, NDArray[np.int_]]:

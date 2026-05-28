@@ -1,5 +1,7 @@
+import anndata as ad
 import numpy as np
 import sklearn.metrics as skm
+from scipy import sparse
 from scipy.stats import pearsonr
 
 from cell_eval._types import PerturbationAnndataPair
@@ -77,6 +79,42 @@ def _reference_discrimination_score(
         rank = np.flatnonzero(sorted_indices == pert_index)[0]
         norm_ranks[str(pert)] = 1 - rank / data.perts.size
     return norm_ranks
+
+
+def test_bulk_anndata_matches_manual_means_for_dense_and_sparse() -> None:
+    matrix = np.array(
+        [
+            [1.0, 3.0, 5.0],
+            [2.0, 4.0, 6.0],
+            [3.0, 5.0, 7.0],
+            [4.0, 6.0, 8.0],
+            [5.0, 7.0, 9.0],
+        ]
+    )
+    labels = np.array(["pert_b", "pert_a", "pert_b", CONTROL_VAR, "pert_a"])
+    expected_keys = np.array([CONTROL_VAR, "pert_a", "pert_b"])
+    expected_values = np.array(
+        [
+            [4.0, 6.0, 8.0],
+            [3.5, 5.5, 7.5],
+            [2.0, 4.0, 6.0],
+        ]
+    )
+
+    dense = ad.AnnData(X=matrix)
+    dense.obs[PERT_COL] = labels
+    dense_keys, dense_values = PerturbationAnndataPair._bulk_anndata(dense, PERT_COL)
+
+    sparse_adata = ad.AnnData(X=sparse.csr_matrix(matrix))
+    sparse_adata.obs[PERT_COL] = labels
+    sparse_keys, sparse_values = PerturbationAnndataPair._bulk_anndata(
+        sparse_adata, PERT_COL
+    )
+
+    np.testing.assert_array_equal(dense_keys, expected_keys)
+    np.testing.assert_allclose(dense_values, expected_values)
+    np.testing.assert_array_equal(sparse_keys, expected_keys)
+    np.testing.assert_allclose(sparse_values, expected_values)
 
 
 def test_pearson_delta_matches_reference() -> None:
