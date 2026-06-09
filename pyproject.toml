@@ -11,7 +11,7 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "igraph>=0.11.8",
-    "pdex>=0.2.2",
+    "pdex>=0.2.3",
     "polars>=1.30.0",
     "pyyaml>=6.0.2",
     "scanpy>=1.10.3",
@@ -31,6 +31,9 @@ dev = [
     "ruff>=0.11.8",
     "ty>=0.0.19",
 ]
+
+[tool.uv.sources]
+pdex = { git = "https://github.com/abhinadduri/pdex.git", branch = "gpu" }
 
 [project.scripts]
 cell-eval = "cell_eval.__main__:main"
