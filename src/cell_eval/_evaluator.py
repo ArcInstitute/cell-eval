@@ -1,9 +1,11 @@
 import logging
 import multiprocessing as mp
 import os
-from typing import Any, Literal
+import warnings
+from typing import Any, Literal, cast
 
 import anndata as ad
+import numpy as np
 import pandas as pd
 import polars as pl
 import scanpy as sc
@@ -92,6 +94,13 @@ class MetricsEvaluator:
             )
         os.makedirs(outdir, exist_ok=True)
 
+        # Stored so the data ceiling (compute_ceiling) can reuse the exact same
+        # DE / pdex configuration as the main evaluation for comparability.
+        self._num_threads = num_threads
+        self._allow_discrete = allow_discrete
+        self._skip_de = skip_de
+        self._pdex_kwargs = pdex_kwargs or {}
+
         self.anndata_pair = _build_anndata_pair(
             real=adata_real,
             pred=adata_pred,
@@ -111,7 +120,7 @@ class MetricsEvaluator:
                 allow_discrete=allow_discrete,
                 outdir=outdir,
                 prefix=prefix,
-                pdex_kwargs=pdex_kwargs or {},
+                pdex_kwargs=self._pdex_kwargs,
             )
 
         self.outdir = outdir
@@ -139,30 +148,136 @@ class MetricsEvaluator:
         agg_results = pipeline.get_agg_results()
 
         if write_csv:
-            if self.prefix is not None:
-                self.prefix = self.prefix.replace(
-                    "/", "-"
-                )  # some prefixes (e.g. HepG2/C3A) may have slashes in them
-            if basename is not None:
-                basename = basename.replace(
-                    "/", "-"
-                )  # some basenames (e.g. HepG2/C3A_results.csv) may have slashes in them
-            outpath = os.path.join(
-                self.outdir,
-                f"{self.prefix}_{basename}" if self.prefix else basename,
-            )
-            agg_outpath = os.path.join(
-                self.outdir,
-                f"{self.prefix}_agg_{basename}" if self.prefix else f"agg_{basename}",
-            )
-
-            logger.info(f"Writing perturbation level metrics to {outpath}")
-            results.write_csv(outpath)
-
-            logger.info(f"Writing aggregate metrics to {agg_outpath}")
-            agg_results.write_csv(agg_outpath)
+            self._write_results(results, agg_results, basename)
 
         return results, agg_results
+
+    def compute_ceiling(
+        self,
+        profile: Literal["full", "vcc", "minimal", "de", "anndata", "pds"] = "full",
+        metric_configs: dict[str, dict[str, Any]] | None = None,
+        skip_metrics: list[str] | None = None,
+        basename: str = "ceiling_results.csv",
+        write_csv: bool = True,
+        break_on_error: bool = False,
+        seed: int = 0,
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        """Estimate a data ceiling: the maximum achievable score per metric.
+
+        Uses the real data only. For each perturbation (and the control) the
+        cells are bootstrapped to twice their count and split into two equal
+        halves; one half is treated as "real" and the other as "prediction".
+        Running the normal metric pipeline on that self-split yields, per metric,
+        an upper bound on how well any model could score given the noise inherent
+        in the real data.
+
+        Outputs mirror :meth:`compute` (``ceiling_results.csv`` /
+        ``agg_ceiling_results.csv``). The bootstrap DE is computed in-memory and
+        not written to disk. The same ``pdex_kwargs`` and ``allow_discrete`` used
+        for the main evaluation are reused so the ceiling is directly comparable.
+        """
+        logger.info(f"Computing data ceiling (seed={seed})")
+        half_real, half_pred = self._bootstrap_halves(seed)
+
+        ceiling_pair = PerturbationAnndataPair(
+            real=half_real,
+            pred=half_pred,
+            control_pert=self.anndata_pair.control_pert,
+            pert_col=self.anndata_pair.pert_col,
+            embed_key=self.anndata_pair.embed_key,
+        )
+
+        if self._skip_de:
+            ceiling_de = None
+        else:
+            ceiling_de = _build_de_comparison(
+                anndata_pair=ceiling_pair,
+                num_threads=self._num_threads,
+                allow_discrete=self._allow_discrete,
+                outdir=None,  # keep the bootstrap DE in-memory; never persisted
+                prefix=None,
+                pdex_kwargs=dict(self._pdex_kwargs),
+            )
+
+        pipeline = MetricPipeline(
+            profile=profile,
+            metric_configs=metric_configs,
+            break_on_error=break_on_error,
+        )
+        if skip_metrics is not None:
+            pipeline.skip_metrics(skip_metrics)
+        pipeline.compute_de_metrics(ceiling_de)
+        pipeline.compute_anndata_metrics(ceiling_pair)
+        results = pipeline.get_results()
+        agg_results = pipeline.get_agg_results()
+
+        if write_csv:
+            self._write_results(results, agg_results, basename)
+
+        return results, agg_results
+
+    def _bootstrap_halves(self, seed: int) -> tuple[ad.AnnData, ad.AnnData]:
+        """Build two same-size bootstrap halves of the real data.
+
+        Resampling is stratified per perturbation (including the control): each
+        group's ``n`` cells are drawn ``2n`` times with replacement and split
+        into two halves of ``n`` cells. This guarantees both halves carry every
+        perturbation plus the control with the same per-perturbation membership
+        as the real data, so the resulting ``PerturbationAnndataPair`` validates
+        and the bootstrap DE keeps the same statistical power.
+        """
+        real = self.anndata_pair.real
+        pert_col = self.anndata_pair.pert_col
+
+        rng = np.random.default_rng(seed)
+        labels = cast(pd.Series, real.obs[pert_col]).to_numpy(str)
+
+        half_real_idx: list[np.ndarray] = []
+        half_pred_idx: list[np.ndarray] = []
+        for pert in np.unique(labels):
+            idx = np.flatnonzero(labels == pert)
+            draws = rng.choice(idx, size=2 * idx.size, replace=True)
+            half_real_idx.append(draws[: idx.size])
+            half_pred_idx.append(draws[idx.size :])
+
+        # Sampling with replacement duplicates obs names; anndata warns about the
+        # non-unique index on slice, so silence that one known-benign warning and
+        # make the names unique immediately afterwards.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message="Observation names are not unique"
+            )
+            half_real = real[np.concatenate(half_real_idx)].copy()
+            half_pred = real[np.concatenate(half_pred_idx)].copy()
+        half_real.obs_names_make_unique()
+        half_pred.obs_names_make_unique()
+
+        return half_real, half_pred
+
+    def _write_results(
+        self,
+        results: pl.DataFrame,
+        agg_results: pl.DataFrame,
+        basename: str,
+    ) -> None:
+        # some prefixes/basenames (e.g. HepG2/C3A) may have slashes in them
+        prefix = self.prefix.replace("/", "-") if self.prefix is not None else None
+        basename = basename.replace("/", "-")
+
+        outpath = os.path.join(
+            self.outdir,
+            f"{prefix}_{basename}" if prefix else basename,
+        )
+        agg_outpath = os.path.join(
+            self.outdir,
+            f"{prefix}_agg_{basename}" if prefix else f"agg_{basename}",
+        )
+
+        logger.info(f"Writing perturbation level metrics to {outpath}")
+        results.write_csv(outpath)
+
+        logger.info(f"Writing aggregate metrics to {agg_outpath}")
+        agg_results.write_csv(agg_outpath)
 
 
 def _build_anndata_pair(

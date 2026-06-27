@@ -97,6 +97,19 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="Metrics to skip (comma-separated for multiple) (see docs for more details)",
     )
     parser.add_argument(
+        "--ceiling",
+        action="store_true",
+        help="Additionally compute a data ceiling: a real-data-only upper bound on "
+        "each metric, estimated by bootstrapping the real data against itself. "
+        "Writes ceiling_results.csv / agg_ceiling_results.csv alongside the normal results.",
+    )
+    parser.add_argument(
+        "--ceiling-seed",
+        type=int,
+        default=0,
+        help="Random seed for the data ceiling bootstrap [default: %(default)s]",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s {version}".format(
@@ -166,6 +179,14 @@ def run_evaluation(args: ap.Namespace):
                 skip_metrics=skip_metrics,
                 basename="results.csv",
             )
+            if args.ceiling:
+                evaluator.compute_ceiling(
+                    profile=args.profile,
+                    metric_configs=metric_kwargs,
+                    skip_metrics=skip_metrics,
+                    basename="ceiling_results.csv",
+                    seed=args.ceiling_seed,
+                )
 
     else:
         evaluator = MetricsEvaluator(
@@ -186,3 +207,11 @@ def run_evaluation(args: ap.Namespace):
             skip_metrics=skip_metrics,
             basename="results.csv",
         )
+        if args.ceiling:
+            evaluator.compute_ceiling(
+                profile=args.profile,
+                metric_configs=metric_kwargs,
+                skip_metrics=skip_metrics,
+                basename="ceiling_results.csv",
+                seed=args.ceiling_seed,
+            )

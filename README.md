@@ -81,6 +81,31 @@ evaluator = MetricsEvaluator(
 
 This will give you metric evaluations for each perturbation individually (`results`) and aggregated results over all perturbations (`agg_results`).
 
+#### Data ceiling
+
+To estimate the *maximum* achievable score on each metric given the noise inherent in the real
+data, pass `--ceiling`. This is computed from the **real data only**: per perturbation (and the
+control), its cells are bootstrapped to twice their count and split into two equal halves; one
+half plays "real" and the other "prediction", and the full metric suite is run on that self-split.
+The result is, per metric, an upper bound on how well any model could score on this dataset.
+
+```bash
+cell-eval run \
+    -ap <your/path/to/pred>.h5ad \
+    -ar <your/path/to/real>.h5ad \
+    --num-threads 64 \
+    --profile full \
+    --ceiling
+```
+
+This is *additive*: it writes the normal `results.csv` / `agg_results.csv` **and**
+`ceiling_results.csv` / `agg_ceiling_results.csv`. The bootstrap is reproducible via
+`--ceiling-seed` (default `0`). From python, call `compute_ceiling` on the evaluator:
+
+```python
+ceiling, ceiling_agg = evaluator.compute_ceiling(seed=0)
+```
+
 ### Score
 
 To normalize your scores against a baseline you can run the `cell-eval score` command.

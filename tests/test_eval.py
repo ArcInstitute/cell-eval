@@ -391,3 +391,169 @@ def test_eval_downsampled_cells():
         break_on_error=True,
     )
     validate_expected_files(OUTDIR)
+
+
+def _assert_results_close(a, b) -> None:
+    """Assert two per-perturbation result frames are numerically identical."""
+    a = a.sort("perturbation")
+    b = b.sort("perturbation")
+    assert sorted(a.columns) == sorted(b.columns)
+    assert a["perturbation"].to_list() == b["perturbation"].to_list()
+    cols = [c for c in a.columns if c != "perturbation"]
+    num_a = a.select(cols).to_numpy().astype(float)
+    num_b = b.select(cols).to_numpy().astype(float)
+    assert np.allclose(num_a, num_b, equal_nan=True)
+
+
+def test_ceiling_bootstrap_halves_membership():
+    """Each half must carry every perturbation + control with the real counts."""
+    adata_real = build_random_anndata()
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_real.copy(),
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+        skip_de=True,  # membership only depends on the bootstrap, skip pdex
+    )
+
+    half_real, half_pred = evaluator._bootstrap_halves(seed=0)
+
+    real_counts = evaluator.anndata_pair.real.obs[PERT_COL].value_counts().to_dict()
+    assert CONTROL_VAR in real_counts
+    for half in (half_real, half_pred):
+        half_counts = half.obs[PERT_COL].value_counts().to_dict()
+        # same set of perturbations (incl. control) and same per-pert membership
+        assert half_counts == real_counts
+        # sampling with replacement must yield unique obs names
+        assert half.obs_names.is_unique
+
+    shutil.rmtree(OUTDIR)
+
+
+def test_eval_ceiling():
+    adata_real = build_random_anndata()
+    adata_pred = adata_real.copy()
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_pred,
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+    )
+    results, agg_results = evaluator.compute_ceiling(break_on_error=True)
+    assert results.height > 0
+    assert agg_results.height > 0
+    assert os.path.exists(f"{OUTDIR}/ceiling_results.csv")
+    assert os.path.exists(f"{OUTDIR}/agg_ceiling_results.csv")
+    shutil.rmtree(OUTDIR)
+
+
+def test_eval_ceiling_prefix():
+    adata_real = build_random_anndata()
+    adata_pred = adata_real.copy()
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_pred,
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+        prefix="arbitrary",
+    )
+    evaluator.compute_ceiling(break_on_error=True)
+    assert os.path.exists(f"{OUTDIR}/arbitrary_ceiling_results.csv")
+    assert os.path.exists(f"{OUTDIR}/arbitrary_agg_ceiling_results.csv")
+    shutil.rmtree(OUTDIR)
+
+
+def test_eval_ceiling_profiles():
+    adata_real = build_random_anndata()
+    adata_pred = adata_real.copy()
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_pred,
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+    )
+    for profile in KNOWN_PROFILES:
+        evaluator.compute_ceiling(
+            profile=profile,
+            break_on_error=True,
+            write_csv=False,
+        )
+    shutil.rmtree(OUTDIR)
+
+
+def test_eval_ceiling_pds_skips_de():
+    """When the evaluator skips DE, the ceiling must too (no pdex, no DE files)."""
+    adata_real = build_random_anndata()
+    adata_pred = adata_real.copy()
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_pred,
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+        skip_de=True,
+    )
+    assert evaluator.de_comparison is None
+    results, _ = evaluator.compute_ceiling(
+        profile="pds",
+        break_on_error=True,
+        write_csv=False,
+    )
+    assert results.height > 0
+    shutil.rmtree(OUTDIR)
+
+
+def test_eval_ceiling_reproducible():
+    adata_real = build_random_anndata()
+    adata_pred = adata_real.copy()
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_pred,
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+        num_threads=1,  # deterministic reductions
+    )
+    r1, _ = evaluator.compute_ceiling(seed=7, write_csv=False, break_on_error=True)
+    r2, _ = evaluator.compute_ceiling(seed=7, write_csv=False, break_on_error=True)
+    _assert_results_close(r1, r2)
+    shutil.rmtree(OUTDIR)
+
+
+def test_eval_ceiling_does_not_clobber_de():
+    """The in-memory ceiling DE must not overwrite the main run's DE artifacts."""
+    adata_real = build_random_anndata()
+    adata_pred = adata_real.copy()
+    evaluator = MetricsEvaluator(
+        adata_pred=adata_pred,
+        adata_real=adata_real,
+        control_pert=CONTROL_VAR,
+        pert_col=PERT_COL,
+        outdir=OUTDIR,
+    )
+    evaluator.compute(break_on_error=True)
+
+    real_de_path = f"{OUTDIR}/real_de.csv"
+    pred_de_path = f"{OUTDIR}/pred_de.csv"
+    with open(real_de_path, "rb") as fh:
+        before_real = fh.read()
+    with open(pred_de_path, "rb") as fh:
+        before_pred = fh.read()
+
+    evaluator.compute_ceiling(seed=0, break_on_error=True)
+
+    with open(real_de_path, "rb") as fh:
+        assert fh.read() == before_real
+    with open(pred_de_path, "rb") as fh:
+        assert fh.read() == before_pred
+
+    # ceiling outputs exist, but no ceiling DE artifacts are written
+    assert os.path.exists(f"{OUTDIR}/ceiling_results.csv")
+    assert os.path.exists(f"{OUTDIR}/agg_ceiling_results.csv")
+    assert not os.path.exists(f"{OUTDIR}/ceiling_real_de.csv")
+    assert not os.path.exists(f"{OUTDIR}/ceiling_pred_de.csv")
+    shutil.rmtree(OUTDIR)
