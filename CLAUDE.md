@@ -51,7 +51,7 @@ AnnData inputs (predicted + real)
 
 ### Key Abstractions
 
-- **`MetricsEvaluator`** (`src/cell_eval/_evaluator.py`) — Main programmatic entry point. Validates input AnnData objects, computes differential expression via `pdex`, and orchestrates the metric pipeline.
+- **`MetricsEvaluator`** (`src/cell_eval/_evaluator.py`) — Main programmatic entry point. Validates input AnnData objects, computes differential expression via `pdex`, and orchestrates the metric pipeline. `compute_ceiling()` estimates a per-metric data ceiling (upper bound) from the real data alone: it bootstraps each perturbation (and the control) to 2× cells, splits into two equal halves treated as real/pred, and runs the full pipeline (DE computed in-memory). Exposed via the `run --ceiling` / `--ceiling-seed` CLI flags (additive: writes `ceiling_results.csv` / `agg_ceiling_results.csv`).
 
 - **`MetricRegistry`** (`src/cell_eval/metrics/_registry.py`) — Global singleton `metrics_registry`. Metrics are registered with a name, type (`DE` or `ANNDATA_PAIR`), compute function, and best-value indicator. Supports both plain functions and class-based metrics requiring instantiation.
 
@@ -70,7 +70,7 @@ Metrics are split into two categories registered in `src/cell_eval/metrics/_impl
 
 ### CLI
 
-Subcommands in `src/cell_eval/_cli/`: `prep` (data preparation for VCC), `run` (evaluation), `baseline` (create baseline), `score` (normalize against baseline). CLI defaults are in `_cli/_const.py`.
+Subcommands in `src/cell_eval/_cli/`: `prep` (data preparation for VCC), `run` (evaluation; `--ceiling`/`--ceiling-seed` additionally emit a real-data ceiling), `baseline` (create baseline), `score` (normalize against baseline). CLI defaults are in `_cli/_const.py`.
 
 ### Test Data Utilities
 

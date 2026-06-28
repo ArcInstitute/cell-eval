@@ -1,7 +1,7 @@
 """Array metrics module."""
 
 from logging import getLogger
-from typing import Callable, Literal, Sequence, cast
+from typing import Any, Callable, Literal, Sequence, cast
 
 import anndata as ad
 import numpy as np
@@ -284,7 +284,11 @@ class ClusteringAgreement:
         embed_key: str | None = None,
     ) -> ad.AnnData:
         # Isolate the features
-        feats = adata.obsm.get(embed_key, adata.X)  # type: ignore
+        # embed_key may be None; narrow it before .get (whose key must be str) and
+        # keep feats untyped since it may be a dense array or a sparse matrix.
+        feats: Any = (
+            adata.X if embed_key is None else adata.obsm.get(embed_key, adata.X)
+        )
 
         # Convert to float if not already
         if feats.dtype != np.dtype("float64"):
