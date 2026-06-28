@@ -2,7 +2,7 @@ import logging
 import multiprocessing as mp
 import os
 import warnings
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import anndata as ad
 import numpy as np
@@ -230,12 +230,13 @@ class MetricsEvaluator:
         pert_col = self.anndata_pair.pert_col
 
         rng = np.random.default_rng(seed)
-        labels = cast(pd.Series, real.obs[pert_col]).to_numpy(str)
 
+        # Group row positions per perturbation in a single pass (`observed=True`
+        # keeps only perturbations actually present). `.indices` yields positional
+        # indices, so they can index the AnnData directly.
         half_real_idx: list[np.ndarray] = []
         half_pred_idx: list[np.ndarray] = []
-        for pert in np.unique(labels):
-            idx = np.flatnonzero(labels == pert)
+        for _pert, idx in real.obs.groupby(pert_col, observed=True).indices.items():
             draws = rng.choice(idx, size=2 * idx.size, replace=True)
             half_real_idx.append(draws[: idx.size])
             half_pred_idx.append(draws[idx.size :])
