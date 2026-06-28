@@ -390,20 +390,18 @@ class ClusteringAgreement:
         control_pert: str,
         embed_key: str | None = None,
     ) -> ad.AnnData:
-        # Isolate the features
-        # embed_key may be None; narrow it before .get (whose key must be str) and
-        # keep feats untyped since it may be a dense array or a sparse matrix.
-        feats: Any = (
+        # Isolate the features and narrow to a dense ndarray for centroid math.
+        # embed_key may be None; narrow it before .get, whose key must be str.
+        feats_source: Any = (
             adata.X if embed_key is None else adata.obsm.get(embed_key, adata.X)
         )
-
-        # Convert to float if not already
+        feats = (
+            cast(Any, feats_source).toarray()
+            if issparse(feats_source)
+            else np.asarray(feats_source)
+        )
         if feats.dtype != np.dtype("float64"):
             feats = feats.astype(np.float64)
-
-        # Densify if required
-        if issparse(feats):
-            feats = feats.toarray()
 
         cats = cast(pd.Series, adata.obs[category_key]).values
         uniq, inv = np.unique(cats, return_inverse=True)

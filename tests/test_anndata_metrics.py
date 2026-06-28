@@ -24,9 +24,8 @@ def _metric_pair() -> PerturbationAnndataPair:
 
     pred = real.copy()
     rng = np.random.default_rng(23)
-    pred.X = np.clip(
-        np.asarray(pred.X) + rng.normal(0, 0.01, size=pred.X.shape), 0, None
-    )
+    pred_x = np.asarray(pred.X)
+    pred.X = np.clip(pred_x + rng.normal(0, 0.01, size=pred_x.shape), 0, None)
 
     return PerturbationAnndataPair(
         real=real,

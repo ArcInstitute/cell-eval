@@ -116,16 +116,17 @@ class PerturbationAnndataPair:
     ) -> tuple[NDArray[np.str_], NDArray[np.float64]]:
         """Get bulk anndata for a groupby key."""
 
-        matrix = adata.X if not embed_key else adata.obsm[embed_key]  # type: ignore
+        group_values = cast(pd.Series, adata.obs[groupby_key]).to_numpy(str)
+        matrix = adata.X if not embed_key else adata.obsm[embed_key]
         if issparse(matrix):
             return PerturbationAnndataPair._bulk_sparse_matrix(
                 matrix=matrix,  # type: ignore[arg-type]
-                group_values=adata.obs[groupby_key].to_numpy(str),
+                group_values=group_values,
             )
 
         return PerturbationAnndataPair._bulk_dense_matrix(
             matrix=np.asarray(matrix),
-            group_values=adata.obs[groupby_key].to_numpy(str),
+            group_values=group_values,
         )
 
     @staticmethod

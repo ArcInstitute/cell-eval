@@ -441,10 +441,14 @@ def test_ceiling_bootstrap_halves_membership():
 
     half_real, half_pred = evaluator._bootstrap_halves(seed=0)
 
-    real_counts = evaluator.anndata_pair.real.obs[PERT_COL].value_counts().to_dict()
+    real_counts = (
+        cast(pd.Series, evaluator.anndata_pair.real.obs[PERT_COL])
+        .value_counts()
+        .to_dict()
+    )
     assert CONTROL_VAR in real_counts
     for half in (half_real, half_pred):
-        half_counts = half.obs[PERT_COL].value_counts().to_dict()
+        half_counts = cast(pd.Series, half.obs[PERT_COL]).value_counts().to_dict()
         # same set of perturbations (incl. control) and same per-pert membership
         assert half_counts == real_counts
         # sampling with replacement must yield unique obs names
