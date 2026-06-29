@@ -557,3 +557,48 @@ def test_eval_ceiling_does_not_clobber_de():
     assert not os.path.exists(f"{OUTDIR}/ceiling_real_de.csv")
     assert not os.path.exists(f"{OUTDIR}/ceiling_pred_de.csv")
     shutil.rmtree(OUTDIR)
+
+
+class TestCellEvalPdexDefaults:
+    """cell-eval keeps DE defaults fixed (pdex>=0.2.5 available, behavior unchanged):
+    epsilon=0 and the pooled-CPM floor filter OFF; both opt-in."""
+
+    def test_epsilon_default_zero(self):
+        from cell_eval._evaluator import _build_pdex_kwargs
+
+        k = _build_pdex_kwargs(
+            reference="non-targeting", groupby="target", threads=1, allow_discrete=False
+        )
+        assert k["epsilon"] == 0.0
+
+    def test_cpm_filter_off_by_default(self):
+        from cell_eval._evaluator import _build_pdex_kwargs
+
+        k = _build_pdex_kwargs(
+            reference="non-targeting", groupby="target", threads=1, allow_discrete=False
+        )
+        assert "cpm_filter" not in k  # off -> pdex's own default (None)
+
+    def test_cpm_filter_opt_in_kept(self):
+        from cell_eval._evaluator import _build_pdex_kwargs
+
+        k = _build_pdex_kwargs(
+            reference="non-targeting",
+            groupby="target",
+            threads=1,
+            allow_discrete=False,
+            pdex_kwargs={"cpm_filter": 5.0},
+        )
+        assert k["cpm_filter"] == 5.0
+
+    def test_epsilon_override_kept(self):
+        from cell_eval._evaluator import _build_pdex_kwargs
+
+        k = _build_pdex_kwargs(
+            reference="non-targeting",
+            groupby="target",
+            threads=1,
+            allow_discrete=False,
+            pdex_kwargs={"epsilon": 1e-9},
+        )
+        assert k["epsilon"] == 1e-9

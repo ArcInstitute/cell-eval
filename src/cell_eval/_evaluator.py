@@ -398,6 +398,11 @@ def _build_pdex_kwargs(
             pdex_kwargs["is_log1p"] = False
         else:
             pdex_kwargs["is_log1p"] = True
+    # Keep cell-eval's default DE behavior unchanged from pdex<0.2.5: pin epsilon=0
+    # (pdex>=0.2.5 defaults it to 1e-9) and leave the pooled-CPM floor filter OFF.
+    # Both are opt-in — enable the filter via --cpm-filter / pdex_kwargs["cpm_filter"].
+    if "epsilon" not in pdex_kwargs:
+        pdex_kwargs["epsilon"] = 0.0
     return pdex_kwargs
 
 

@@ -110,6 +110,15 @@ def parse_args_run(parser: ap.ArgumentParser):
         help="Random seed for the data ceiling bootstrap [default: %(default)s]",
     )
     parser.add_argument(
+        "--cpm-filter",
+        type=float,
+        default=None,
+        help="Optional pooled-CPM floor threshold (T) forwarded to pdex: a (target, "
+        "gene) row is dropped when the gene's bulk CPM is <= T in BOTH the target and "
+        "the reference, removing the below-detection floor. OFF by default (default DE "
+        "behavior unchanged); pass e.g. 5 to enable (T is dataset-dependent).",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s {version}".format(
@@ -172,6 +181,7 @@ def run_evaluation(args: ap.Namespace):
                 allow_discrete=args.allow_discrete,
                 prefix=ct,
                 skip_de=args.profile == "pds",
+                pdex_kwargs={"cpm_filter": args.cpm_filter},
             )
             evaluator.compute(
                 profile=args.profile,
@@ -200,6 +210,7 @@ def run_evaluation(args: ap.Namespace):
             outdir=args.outdir,
             allow_discrete=args.allow_discrete,
             skip_de=args.profile == "pds",
+            pdex_kwargs={"cpm_filter": args.cpm_filter},
         )
         evaluator.compute(
             profile=args.profile,
