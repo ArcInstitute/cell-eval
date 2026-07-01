@@ -122,6 +122,26 @@ metrics_registry.register(
 )
 
 metrics_registry.register(
+    name="de_spearman_pos_lfc_sig",
+    metric_type=MetricType.DE,
+    description="Spearman correlation on positive log fold changes of significant genes",
+    best_value=MetricBestValue.ONE,
+    func=DESpearmanLFC,  # type: ignore
+    is_class=True,
+    kwargs={"lfc_direction": "pos"},
+)
+
+metrics_registry.register(
+    name="de_spearman_neg_lfc_sig",
+    metric_type=MetricType.DE,
+    description="Spearman correlation on negative log fold changes of significant genes",
+    best_value=MetricBestValue.ONE,
+    func=DESpearmanLFC,  # type: ignore
+    is_class=True,
+    kwargs={"lfc_direction": "neg"},
+)
+
+metrics_registry.register(
     name="de_sig_genes_recall",
     metric_type=MetricType.DE,
     description="Recall of significant genes",

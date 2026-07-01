@@ -109,16 +109,34 @@ class DEDirectionMatch:
 class DESpearmanLFC:
     """Compute Spearman correlation on log fold changes of significant genes."""
 
-    def __init__(self, fdr_threshold: float = 0.05) -> None:
+    def __init__(
+        self,
+        fdr_threshold: float = 0.05,
+        lfc_direction: Literal["all", "pos", "neg"] = "all",
+    ) -> None:
         self.fdr_threshold = fdr_threshold
+        if lfc_direction not in {"all", "pos", "neg"}:
+            raise ValueError(f"Invalid LFC direction: {lfc_direction}")
+        self.lfc_direction = lfc_direction
 
     def __call__(self, data: DEComparison) -> dict[str, float]:
         """Compute correlation between log fold changes of significant genes."""
         correlations = {}
+        real_lfc = pl.col(data.real.log2_fold_change_col)
+        real_significant = data.real.filter_to_significant(
+            fdr_threshold=self.fdr_threshold
+        )
+
+        match self.lfc_direction:
+            case "all":
+                pass
+            case "pos":
+                real_significant = real_significant.filter(real_lfc > 0)
+            case "neg":
+                real_significant = real_significant.filter(real_lfc < 0)
 
         merged = (
-            data.real.filter_to_significant(fdr_threshold=self.fdr_threshold)
-            .join(
+            real_significant.join(
                 data.pred.data,
                 on=[data.real.target_col, data.real.feature_col],
                 suffix="_pred",
