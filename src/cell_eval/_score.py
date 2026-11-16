@@ -59,8 +59,8 @@ def score_agg_metrics(
                 idx_norm_by_one.append(idx)
         except KeyError:
             logger.warning(f"Metric '{m}' not found in registry (skipping index {idx})")
-    idx_norm_by_zero = np.array(idx_norm_by_zero)
-    idx_norm_by_one = np.array(idx_norm_by_one)
+    idx_norm_by_zero = np.array(idx_norm_by_zero, dtype=int)
+    idx_norm_by_one = np.array(idx_norm_by_one, dtype=int)
 
     # Determine the row index for the comparison statistic
     u_row_idx = np.flatnonzero(results_user["statistic"] == comparison_statistic)[0]
