@@ -80,11 +80,6 @@ class MetricPipeline:
             case _:
                 raise ValueError(f"Unrecognized profile: {profile}")
 
-        # Apply metric configurations
-        for metric_name, config in self._metric_configs.items():
-            if metric_name in metrics_registry.list_metrics():
-                metrics_registry.update_metric_kwargs(metric_name, config)
-
     def add_metrics(
         self, metrics: list[str], configs: dict[str, dict[str, Any]] | None = None
     ) -> None:
@@ -97,9 +92,6 @@ class MetricPipeline:
         self._metrics.extend(metrics)
         if configs:
             self._metric_configs.update(configs)
-            for metric_name, config in configs.items():
-                if metric_name in metrics_registry.list_metrics():
-                    metrics_registry.update_metric_kwargs(metric_name, config)
 
     def add_metric(
         self,
