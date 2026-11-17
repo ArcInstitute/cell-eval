@@ -10,6 +10,28 @@ from scipy.sparse import csc_matrix, csr_matrix
 logger = logging.getLogger(__name__)
 
 
+def _sparse_group_mean(
+    matrix: csr_matrix | csc_matrix, groups: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Average sparse rows by group without densifying the per-cell matrix.
+
+    Sums are accumulated in float64; floating input dtypes are kept in the result.
+    """
+    keys, inverse, counts = np.unique(groups, return_inverse=True, return_counts=True)
+    matrix = matrix.tocsr()
+    sums = np.zeros((keys.size, matrix.shape[1]), dtype=np.float64)
+    # Promote to float64 one row block at a time instead of copying all nonzeros.
+    for start in range(0, groups.size, 4096):
+        stop = min(start + 4096, groups.size)
+        membership = csr_matrix(
+            (np.ones(stop - start), (inverse[start:stop], np.arange(stop - start))),
+            shape=(keys.size, stop - start),
+        )
+        sums += (membership @ matrix[start:stop].astype(np.float64)).toarray()
+    dtype = matrix.dtype if np.issubdtype(matrix.dtype, np.floating) else np.float64
+    return keys, (sums / counts[:, None]).astype(dtype, copy=False)
+
+
 def guess_is_lognorm(
     adata: ad.AnnData,
     epsilon: float = 1e-3,
