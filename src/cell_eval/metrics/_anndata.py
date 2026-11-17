@@ -17,6 +17,7 @@ from sklearn.metrics import (
 )
 
 from .._types import PerturbationAnndataPair
+from ..utils import _sparse_group_mean
 
 logger = getLogger(__name__)
 
@@ -294,18 +295,16 @@ class ClusteringAgreement:
         if feats.dtype != np.dtype("float64"):
             feats = feats.astype(np.float64)
 
-        # Densify if required
-        if issparse(feats):
-            feats = feats.toarray()
-
         cats = cast(pd.Series, adata.obs[category_key]).values
-        uniq, inv = np.unique(cats, return_inverse=True)
-        centroids = np.zeros((uniq.size, feats.shape[1]), dtype=feats.dtype)
-
-        for i, cat in enumerate(uniq):
-            mask = cats == cat
-            if np.any(mask):
-                centroids[i] = feats[mask].mean(axis=0)
+        if issparse(feats):
+            uniq, centroids = _sparse_group_mean(feats, np.asarray(cats))
+        else:
+            uniq = np.unique(cats)
+            centroids = np.zeros((uniq.size, feats.shape[1]), dtype=feats.dtype)
+            for i, cat in enumerate(uniq):
+                mask = cats == cat
+                if np.any(mask):
+                    centroids[i] = feats[mask].mean(axis=0)
 
         adc = ad.AnnData(X=centroids)
         adc.obs[category_key] = uniq

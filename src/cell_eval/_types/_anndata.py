@@ -7,8 +7,10 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from numpy.typing import NDArray
-from scipy.sparse import issparse
+from scipy.sparse import csc_matrix, csr_matrix, issparse
 from tqdm import tqdm
+
+from ..utils import _sparse_group_mean
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +121,10 @@ class PerturbationAnndataPair:
 
         matrix = adata.X if not embed_key else adata.obsm[embed_key]
         if issparse(matrix):
-            # Convert sparse matrix to dense array
-            logger.info("Converting sparse matrix to dense array for bulk calculation")
-            matrix = matrix.toarray()  # type: ignore
+            return _sparse_group_mean(
+                cast(csr_matrix | csc_matrix, matrix),
+                adata.obs[groupby_key].to_numpy(str),
+            )
 
         # Create a polars dataframe with the groupby key
         frame = pl.DataFrame(
